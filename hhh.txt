@@ -1,0 +1,111 @@
+module differential_decoder (
+    input wire clk,
+    input wire rst,
+    input wire delta_k,
+    input wire delta_k_plus1,
+    output reg b2k,
+    output reg b2k_plus1
+);
+
+    // Shift registers for delta history
+    reg [1:0] delta_current;  // {δ2k, δ2k+1}
+    reg [1:0] delta_prev1;    // {δ2k-1, δ2k}
+    reg [1:0] delta_prev2;    // {δ2k-2, δ2k-1}
+
+    wire [3:0] state;
+    assign state = {delta_prev2, delta_prev1};
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            delta_current <= 2'b00;
+            delta_prev1 <= 2'b00;
+            delta_prev2 <= 2'b00;
+            b2k <= 0;
+            b2k_plus1 <= 0;
+        end else begin
+            // Shift previous values
+            delta_prev2 <= delta_prev1;
+            delta_prev1 <= delta_current;
+            delta_current <= {delta_k, delta_k_plus1};
+
+            // Lookup table based on 4-bit state {δ2k-2, δ2k-1, δ2k, δ2k+1}
+            case (state)
+                4'b0000: {b2k, b2k_plus1} <= 2'b00;
+                4'b0001: {b2k, b2k_plus1} <= 2'b01;
+                4'b0010: {b2k, b2k_plus1} <= 2'b10;
+                4'b0011: {b2k, b2k_plus1} <= 2'b11;
+                4'b0100: {b2k, b2k_plus1} <= 2'b10;
+                4'b0101: {b2k, b2k_plus1} <= 2'b00;
+                4'b0110: {b2k, b2k_plus1} <= 2'b11;
+                4'b0111: {b2k, b2k_plus1} <= 2'b01;
+                4'b1000: {b2k, b2k_plus1} <= 2'b01;
+                4'b1001: {b2k, b2k_plus1} <= 2'b11;
+                4'b1010: {b2k, b2k_plus1} <= 2'b00;
+                4'b1011: {b2k, b2k_plus1} <= 2'b10;
+                4'b1100: {b2k, b2k_plus1} <= 2'b11;
+                4'b1101: {b2k, b2k_plus1} <= 2'b10;
+                4'b1110: {b2k, b2k_plus1} <= 2'b01;
+                4'b1111: {b2k, b2k_plus1} <= 2'b00;
+                default: {b2k, b2k_plus1} <= 2'b00;
+            endcase
+        end
+    end
+
+endmodule
+
+
+
+
+
+module top_decoder (
+    input wire clk,
+    input wire rst,
+    output wire [1:0] out  // {b2k, b2k_plus1}
+);
+
+    // Address counter
+    reg [2:0] addr;
+
+    // Output from BRAM
+    wire [7:0] douta;  // BRAM data output
+    wire delta_k;
+    wire delta_k_plus1;
+
+    // Decoder outputs
+    wire b2k;
+    wire b2k_plus1;
+
+    // Assign only lower 2 bits of douta to delta_k and delta_k_plus1
+    assign delta_k       = douta[1];  // MSB of the 2-bit input
+    assign delta_k_plus1 = douta[0];  // LSB
+    assign out = {b2k, b2k_plus1};
+
+    // Instantiate BRAM IP
+    blk_mem_gen_0 your_instance_name (
+        .clka(clk),        // input wire clka
+        .ena(1'b1),        // always enabled
+        .wea(1'b0),        // no write, read-only mode
+        .addra(addr),      // address input
+        .dina(8'b0),       // not used (no write)
+        .douta(douta)      // output data
+    );
+
+    // Increment address every clock
+    always @(posedge clk or posedge rst) begin
+        if (rst)
+            addr <= 0;
+        else if (addr < 7)
+            addr <= addr + 1;
+    end
+
+    // Instantiate the decoder
+    differential_decoder decoder_inst (
+        .clk(clk),
+        .rst(rst),
+        .delta_k(delta_k),
+        .delta_k_plus1(delta_k_plus1),
+        .b2k(b2k),
+        .b2k_plus1(b2k_plus1)
+    );
+
+endmodule
