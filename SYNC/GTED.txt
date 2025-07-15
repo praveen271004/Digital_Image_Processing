@@ -1,0 +1,1174 @@
+`timescale 1ns / 1ps
+module QPSK_Symbol_Timing_Sync_Top #(
+    parameter DATA_WIDTH   = 16,   // Q1.15
+    parameter MU_WIDTH     = 10,   // Q1.9
+    parameter MU_FRAC      = 9,
+    parameter COEFF_WIDTH  = 16,   // Q1.15 gains
+    parameter ACC_WIDTH    = 32    // PI accumulator width
+)(
+    input  wire                         clk,
+    input  wire                         rst,
+    input  wire signed [DATA_WIDTH-1:0] I_in,
+    input  wire signed [DATA_WIDTH-1:0] Q_in,
+    output wire signed [DATA_WIDTH-1:0] I_out,
+    output wire signed [DATA_WIDTH-1:0] Q_out,
+    output wire                         valid_out
+);
+
+    // === Delay registers for Interpolation ===
+    reg signed [DATA_WIDTH-1:0] I_reg[0:3];  // x[n-1] to x[n+2]
+    reg signed [DATA_WIDTH-1:0] Q_reg[0:3];
+    reg [2:0] warmup_counter;
+
+    wire interp_valid = (warmup_counter >= 3);
+
+    integer i;
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            for (i = 0; i < 4; i = i + 1) begin
+                I_reg[i] <= 0;
+                Q_reg[i] <= 0;
+            end
+            warmup_counter <= 0;
+        end else begin
+            I_reg[0] <= I_reg[1];
+            I_reg[1] <= I_reg[2];
+            I_reg[2] <= I_reg[3];
+            I_reg[3] <= I_in;
+
+            Q_reg[0] <= Q_reg[1];
+            Q_reg[1] <= Q_reg[2];
+            Q_reg[2] <= Q_reg[3];
+            Q_reg[3] <= Q_in;
+
+            if (warmup_counter < 3)
+                warmup_counter <= warmup_counter + 1;
+        end
+    end
+
+    wire signed [DATA_WIDTH-1:0] I_interp, Q_interp;
+    wire signed [MU_WIDTH-1:0] mu;
+    wire signed [43:0] ted_e;
+    wire signed [15:0] e_k_zs;
+    wire signed [15:0] v_k;
+    wire strobe;
+
+    // === Cubic Interpolators ===
+    Cubic_Interpolator #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .MU_WIDTH(MU_WIDTH),
+        .MU_FRAC(MU_FRAC)
+    ) interp_I (
+        .clk(clk),
+        .rst(rst),
+        .I_in(I_in),  // dummy
+        .Q_in(Q_in),  // dummy
+        .mu(mu),
+        .I_interp(I_interp),
+        .Q_interp(), // unused
+        .valid_out() // unused
+    );
+
+    Cubic_Interpolator #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .MU_WIDTH(MU_WIDTH),
+        .MU_FRAC(MU_FRAC)
+    ) interp_Q (
+        .clk(clk),
+        .rst(rst),
+        .I_in(Q_in),
+        .Q_in(I_in),  // dummy
+        .mu(mu),
+        .I_interp(Q_interp),
+        .Q_interp(), // unused
+        .valid_out() // unused
+    );
+
+    // === Delay registers for TED ===
+    reg signed [DATA_WIDTH-1:0] I_prev, Q_prev;
+    reg signed [DATA_WIDTH-1:0] I_half, Q_half;
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            I_prev <= 0; Q_prev <= 0;
+            I_half <= 0; Q_half <= 0;
+        end else if (interp_valid) begin
+            I_prev  <= I_reg[2];  // x[n]
+            Q_prev  <= Q_reg[2];
+            I_half  <= I_interp;  // x(n + mu)
+            Q_half  <= Q_interp;
+        end
+    end
+
+    // === Sign-extend to sfix21_En14
+    wire signed [20:0] I_curr_ext = {{5{I_reg[3][15]}}, I_reg[3]};
+    wire signed [20:0] Q_curr_ext = {{5{Q_reg[3][15]}}, Q_reg[3]};
+    wire signed [20:0] I_prev_ext = {{5{I_prev[15]}}, I_prev};
+    wire signed [20:0] Q_prev_ext = {{5{Q_prev[15]}}, Q_prev};
+    wire signed [20:0] I_half_ext = {{5{I_half[15]}}, I_half};
+    wire signed [20:0] Q_half_ext = {{5{Q_half[15]}}, Q_half};
+
+    // === Gardner TED ===
+    G_TED #(
+        .DATA_WIDTH(21),
+        .OUT_WIDTH(44)
+    ) gted_inst (
+        .clk(clk),
+        .reset(rst),
+        .enb(1'b1),
+        .i_curr(I_curr_ext),
+        .q_curr(Q_curr_ext),
+        .i_prev(I_prev_ext),
+        .q_prev(Q_prev_ext),
+        .i_half(I_half_ext),
+        .q_half(Q_half_ext),
+        .valid_in(interp_valid),
+        .ted_out(ted_e)
+    );
+
+    assign e_k_zs = ted_e[43:29] + ted_e[27];
+
+    // === Loop Filter ===
+    Loop_Filter_PI #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .COEFF_WIDTH(COEFF_WIDTH),
+        .ACC_WIDTH(ACC_WIDTH)
+    ) loop_filter_inst (
+        .clk(clk),
+        .rst(rst),
+        .zs_valid(interp_valid),
+        .e_k_zs(e_k_zs),
+        .v_k(v_k)
+    );
+
+    // === NCO + Mu Update ===
+    NCO_Update_Mu #(
+        .MU_WIDTH(MU_WIDTH),
+        .MU_FRAC(MU_FRAC)
+    ) nco_update_inst (
+        .clk(clk),
+        .rst(rst),
+        .v_k_in(v_k),
+        .mu(mu),
+        .strobe(strobe)
+    );
+
+    // === Rate Handle on Output ===
+    wire signed [15:0] rh_out_re, rh_out_im;
+    wire rh_valid_out;
+
+    Rate_Handle u_rate_handle (
+        .clk(clk),
+        .reset(rst),
+        .enb(1'b1),
+        .dataIn_re(I_interp),
+        .dataIn_im(Q_interp),
+        .strobe(strobe),
+        .validIn(interp_valid),
+        .dataOut_re(rh_out_re),
+        .dataOut_im(rh_out_im),
+        .validOut(rh_valid_out)
+    );
+
+    assign I_out = rh_out_re;
+    assign Q_out = rh_out_im;
+    assign valid_out = rh_valid_out;
+
+endmodule
+
+
+`timescale 1ns / 1ps
+module Cubic_Interpolator #(
+    parameter DATA_WIDTH = 16,  // Q1.15
+    parameter MU_WIDTH   = 10,  // Q1.9
+    parameter MU_FRAC    = 9
+)(
+    input  wire                         clk,
+    input  wire                         rst,
+    input  wire signed [DATA_WIDTH-1:0] I_in,
+    input  wire signed [DATA_WIDTH-1:0] Q_in,
+    input  wire signed [MU_WIDTH-1:0]   mu,         // Q1.9
+    output reg  signed [DATA_WIDTH-1:0] I_interp,
+    output reg  signed [DATA_WIDTH-1:0] Q_interp,
+    output reg                          valid_out
+);
+
+    // Delay Line: x[n-1], x[n], x[n+1], x[n+2] -> x0, x1, x2, x3
+    reg signed [DATA_WIDTH-1:0] I_reg [0:3];
+    reg signed [DATA_WIDTH-1:0] Q_reg [0:3];
+    reg [2:0] warmup_counter;
+    integer i;
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            for (i = 0; i < 4; i = i + 1) begin
+                I_reg[i] <= 0;
+                Q_reg[i] <= 0;
+            end
+            warmup_counter <= 0;
+            valid_out <= 0;
+        end else begin
+            // Shift input samples
+            I_reg[0] <= I_reg[1];
+            I_reg[1] <= I_reg[2];
+            I_reg[2] <= I_reg[3];
+            I_reg[3] <= I_in;
+
+            Q_reg[0] <= Q_reg[1];
+            Q_reg[1] <= Q_reg[2];
+            Q_reg[2] <= Q_reg[3];
+            Q_reg[3] <= Q_in;
+
+            if (warmup_counter < 4)
+                warmup_counter <= warmup_counter + 1;
+
+            valid_out <= (warmup_counter >= 4);
+        end
+    end
+
+    // Precompute powers of mu
+    wire signed [2*MU_WIDTH-1:0] mu2 = (mu * mu) >>> MU_FRAC;
+    wire signed [3*MU_WIDTH-1:0] mu3 = (mu2 * mu) >>> MU_FRAC;
+
+    // Constants: scaled by 1/6
+    // Formula: y(mu) = x1 + 0.5*mu*(x2 - x0 + mu*(x0 - 2*x1 + x2 + mu*(3*(x1 - x2) + x3 - x0)/6))
+    // We'll use x0 = x[n-1], x1 = x[n], x2 = x[n+1], x3 = x[n+2]
+
+    function signed [31:0] cubic_interp;
+        input signed [DATA_WIDTH-1:0] x0, x1, x2, x3;
+        input signed [MU_WIDTH-1:0] mu;
+        input signed [2*MU_WIDTH-1:0] mu2;
+        input signed [3*MU_WIDTH-1:0] mu3;
+        reg signed [31:0] a0, a1, a2, a3;
+        begin
+            a0 = x1 <<< 15;
+            a1 = ((x2 - x0) * mu) >>> (MU_FRAC + 1);
+            a2 = (((x0 - (x1 <<< 1)) + x2) * mu2) >>> (MU_FRAC + 1);
+            a3 = ((((x1 - x2) <<< 1) + x1 - x0 + x3) * mu3) / 6 >>> (MU_FRAC + 1);
+
+            cubic_interp = a0 + a1 + a2 + a3;
+        end
+    endfunction
+
+    reg signed [31:0] interp_I, interp_Q;
+
+    always @(*) begin
+        interp_I = cubic_interp(I_reg[0], I_reg[1], I_reg[2], I_reg[3], mu, mu2, mu3);
+        interp_Q = cubic_interp(Q_reg[0], Q_reg[1], Q_reg[2], Q_reg[3], mu, mu2, mu3);
+    end
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            I_interp <= 0;
+            Q_interp <= 0;
+        end else if (valid_out) begin
+            I_interp <= interp_I[30:15];  // Convert from Q1.30 to Q1.15
+            Q_interp <= interp_Q[30:15];
+        end
+    end
+
+endmodule
+
+
+`timescale 1ns / 1ps
+module Cubic_Interpolator #(
+    parameter DATA_WIDTH = 16,  // Q1.15
+    parameter MU_WIDTH   = 10,  // Q1.9
+    parameter MU_FRAC    = 9
+)(
+    input  wire                         clk,
+    input  wire                         rst,
+    input  wire signed [DATA_WIDTH-1:0] I_in,
+    input  wire signed [DATA_WIDTH-1:0] Q_in,
+    input  wire signed [MU_WIDTH-1:0]   mu,         // Q1.9
+    output reg  signed [DATA_WIDTH-1:0] I_interp,
+    output reg  signed [DATA_WIDTH-1:0] Q_interp,
+    output reg                          valid_out
+);
+
+    // Delay Line: x[n-1], x[n], x[n+1], x[n+2] -> x0, x1, x2, x3
+    reg signed [DATA_WIDTH-1:0] I_reg [0:3];
+    reg signed [DATA_WIDTH-1:0] Q_reg [0:3];
+    reg [2:0] warmup_counter;
+    integer i;
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            for (i = 0; i < 4; i = i + 1) begin
+                I_reg[i] <= 0;
+                Q_reg[i] <= 0;
+            end
+            warmup_counter <= 0;
+            valid_out <= 0;
+        end else begin
+            // Shift input samples
+            I_reg[0] <= I_reg[1];
+            I_reg[1] <= I_reg[2];
+            I_reg[2] <= I_reg[3];
+            I_reg[3] <= I_in;
+
+            Q_reg[0] <= Q_reg[1];
+            Q_reg[1] <= Q_reg[2];
+            Q_reg[2] <= Q_reg[3];
+            Q_reg[3] <= Q_in;
+
+            if (warmup_counter < 4)
+                warmup_counter <= warmup_counter + 1;
+
+            valid_out <= (warmup_counter >= 4);
+        end
+    end
+
+    // Precompute powers of mu
+    wire signed [2*MU_WIDTH-1:0] mu2 = (mu * mu) >>> MU_FRAC;
+    wire signed [3*MU_WIDTH-1:0] mu3 = (mu2 * mu) >>> MU_FRAC;
+
+    // Constants: scaled by 1/6
+    // Formula: y(mu) = x1 + 0.5*mu*(x2 - x0 + mu*(x0 - 2*x1 + x2 + mu*(3*(x1 - x2) + x3 - x0)/6))
+    // We'll use x0 = x[n-1], x1 = x[n], x2 = x[n+1], x3 = x[n+2]
+
+    function signed [31:0] cubic_interp;
+        input signed [DATA_WIDTH-1:0] x0, x1, x2, x3;
+        input signed [MU_WIDTH-1:0] mu;
+        input signed [2*MU_WIDTH-1:0] mu2;
+        input signed [3*MU_WIDTH-1:0] mu3;
+        reg signed [31:0] a0, a1, a2, a3;
+        begin
+            a0 = x1 <<< 15;
+            a1 = ((x2 - x0) * mu) >>> (MU_FRAC + 1);
+            a2 = (((x0 - (x1 <<< 1)) + x2) * mu2) >>> (MU_FRAC + 1);
+            a3 = ((((x1 - x2) <<< 1) + x1 - x0 + x3) * mu3) / 6 >>> (MU_FRAC + 1);
+
+            cubic_interp = a0 + a1 + a2 + a3;
+        end
+    endfunction
+
+    reg signed [31:0] interp_I, interp_Q;
+
+    always @(*) begin
+        interp_I = cubic_interp(I_reg[0], I_reg[1], I_reg[2], I_reg[3], mu, mu2, mu3);
+        interp_Q = cubic_interp(Q_reg[0], Q_reg[1], Q_reg[2], Q_reg[3], mu, mu2, mu3);
+    end
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            I_interp <= 0;
+            Q_interp <= 0;
+        end else if (valid_out) begin
+            I_interp <= interp_I[30:15];  // Convert from Q1.30 to Q1.15
+            Q_interp <= interp_Q[30:15];
+        end
+    end
+
+endmodule
+
+
+`timescale 1ns / 1ps
+module G_TED #(
+    parameter DATA_WIDTH = 21,   // e.g., Q7.14
+    parameter OUT_WIDTH  = 44    // Wide enough to hold result
+)(
+    input  wire                     clk,
+    input  wire                     reset,
+    input  wire                     enb,
+    input  wire signed [DATA_WIDTH-1:0] i_curr,  // x(n)
+    input  wire signed [DATA_WIDTH-1:0] q_curr,
+    input  wire signed [DATA_WIDTH-1:0] i_prev,  // x(n-1)
+    input  wire signed [DATA_WIDTH-1:0] q_prev,
+    input  wire signed [DATA_WIDTH-1:0] i_half,  // x(n - 0.5)
+    input  wire signed [DATA_WIDTH-1:0] q_half,
+    input  wire                     valid_in,
+    output reg  signed [OUT_WIDTH-1:0] ted_out,
+    output reg                      valid_out
+);
+
+    // Difference: x(n) - x(n-1)
+    wire signed [DATA_WIDTH:0] diff_i = i_curr - i_prev;
+    wire signed [DATA_WIDTH:0] diff_q = q_curr - q_prev;
+
+    // Multiply with conjugate of x(n-0.5)
+    // Re{ (diff_i + j*diff_q) * (i_half - j*q_half) }
+    wire signed [2*DATA_WIDTH:0] mult_i = diff_i * i_half;  // I * I
+    wire signed [2*DATA_WIDTH:0] mult_q = diff_q * q_half;  // Q * Q
+
+    wire signed [OUT_WIDTH-1:0] error_sum = mult_i + mult_q;
+
+    always @(posedge clk or posedge reset) begin
+        if (reset) begin
+            ted_out   <= 0;
+            valid_out <= 0;
+        end else if (enb && valid_in) begin
+            ted_out   <= error_sum;
+            valid_out <= 1;
+        end else begin
+            valid_out <= 0;
+        end
+    end
+
+endmodule
+
+
+`timescale 1ns / 1ps
+
+module Loop_Filter_PI #(
+    parameter DATA_WIDTH   = 16,   // Q1.15 input/output
+    parameter COEFF_WIDTH  = 16,   // Q1.15 gains
+    parameter ACC_WIDTH    = 32    // Accumulator width
+)(
+    input  wire                         clk,
+    input  wire                         rst,
+    input  wire                         zs_valid,
+    input  wire signed [DATA_WIDTH-1:0] e_k_zs,    // Q1.15 error input
+    output reg  signed [DATA_WIDTH-1:0] v_k        // Q1.15 control output
+);
+
+    // Constants
+    localparam signed [COEFF_WIDTH-1:0] K1 = 16'shFEA0; // 2^-5 = 0.03125
+    localparam signed [COEFF_WIDTH-1:0] K2 = 16'shFFF8; // 2^-11 = 0.00048828
+    // Internal integrator register
+    reg signed [ACC_WIDTH-1:0] integrator;
+
+    // Multiply K1 * e_k_zs ? Q2.30
+    wire signed [31:0] mult_k1 = e_k_zs * K1;
+    wire signed [31:0] mult_k2 = e_k_zs * K2;
+
+    // Truncate proportional term: Q2.30 ? Q1.15
+// Truncate proportional term: Q2.30 ? Q1.15
+wire signed [15:0] prop_term = (mult_k1 + 32'sh00004000) >>> 15;
+
+// Truncate integrator term: Q2.30 ? Q1.15
+wire signed [15:0] integ_term = (integrator + 32'sh00004000) >>> 15;
+
+
+    // Combined control output
+    wire signed [16:0] v_k_sum = prop_term + integ_term;
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            integrator <= 0;
+            v_k <= 0;
+        end else if (zs_valid) begin
+            integrator <= integrator + mult_k2;
+
+            // Optional: saturation logic here
+            v_k <= v_k_sum[15:0]; // Output Q1.15
+        end
+    end
+
+endmodule
+
+
+
+`timescale 1ns / 1ps
+
+module NCO_Update_Mu #(
+    parameter MU_WIDTH = 10,        // Q1.9
+    parameter MU_FRAC  = 9
+)(
+    input  wire                      clk,
+    input  wire                      rst,
+    input  wire signed [15:0]        v_k_in,     // Q1.15 from Loop Filter
+    output reg signed [MU_WIDTH-1:0]       mu,         // Q1.9 (0 to <1)
+    output reg                       strobe      // High when mu >= 1.0
+);
+
+    localparam [MU_WIDTH-1:0] ONE  = 10'b1000000000; // 1.0 in Q1.9 = 512
+    localparam [MU_WIDTH-1:0] HALF = 10'b0100000000; // 0.5 in Q1.9 = 256
+
+    // Scale v_k from Q1.15 ? Q1.9 by right-shifting (15 - 9 = 6)
+    wire signed [MU_WIDTH-1:0] v_k_scaled = v_k_in >>> (15 - MU_FRAC);
+
+    // Internal accumulator (signed for safety)
+    reg signed [MU_WIDTH:0] mu_acc;
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            mu      <= 10'sh200;  // Start around mu = 0.3
+            strobe  <= 1'b0;
+            mu_acc  <= 0;
+        end else begin
+            // Add HALF + v_k to current mu
+            mu_acc <= $signed({1'b0, mu}) + $signed(HALF) + v_k_scaled;
+
+            if (mu_acc >= ONE) begin
+                mu     <= mu_acc - ONE;
+                strobe <= 1'b1;
+            end else begin
+                mu     <= mu_acc[MU_WIDTH-1:0];
+                strobe <= 1'b0;
+            end
+        end
+    end
+
+endmodule
+
+
+`timescale 1 ns / 1 ns
+
+module Rate_Handle
+          (clk,
+           reset,
+           enb,
+           dataIn_re,
+           dataIn_im,
+           strobe,
+           validIn,
+           dataOut_re,
+           dataOut_im,
+           validOut);
+
+
+  input   clk;
+  input   reset;
+  input   enb;
+  input   signed [15:0] dataIn_re;  // sfix16_En14
+  input   signed [15:0] dataIn_im;  // sfix16_En14
+  input   strobe;
+  input   validIn;
+  output  signed [15:0] dataOut_re;  // sfix16_En14
+  output  signed [15:0] dataOut_im;  // sfix16_En14
+  output  validOut;
+
+
+  wire [1:0] count_step;  // ufix2
+  wire [1:0] count_from;  // ufix2
+  reg [1:0] HDL_Counter_out1;  // ufix2
+  wire [1:0] count;  // ufix2
+  wire need_to_wrap;
+  wire [1:0] count_value;  // ufix2
+  wire [1:0] count_1;  // ufix2
+  wire Compare_To_Constant_out1;
+  wire Logical_Operator_out1;
+  wire Constant_out1;
+  wire signed [15:0] FIFO_out1_re;  // sfix16_En14
+  wire signed [15:0] FIFO_out1_im;  // sfix16_En14
+  wire FIFO_out3;
+
+
+  // Count limited, Unsigned Counter
+  //  initial value   = 0
+  //  step value      = 1
+  //  count to value  = 3
+  assign count_step = 2'b01;
+
+  assign count_from = 2'b00;
+
+  assign count = HDL_Counter_out1 + count_step;
+
+  assign need_to_wrap = HDL_Counter_out1 == 2'b11;
+
+  assign count_value = (need_to_wrap == 1'b0 ? count :
+              count_from);
+
+  assign count_1 = (validIn == 1'b0 ? HDL_Counter_out1 :
+              count_value);
+
+  always @(posedge clk or posedge reset)
+    begin : HDL_Counter_process
+      if (reset == 1'b1) begin
+        HDL_Counter_out1 <= 2'b00;
+      end
+      else begin
+        if (enb) begin
+          HDL_Counter_out1 <= count_1;
+        end
+      end
+    end
+
+  assign Compare_To_Constant_out1 = HDL_Counter_out1 == 2'b00;
+
+  assign Logical_Operator_out1 = validIn & strobe;
+
+  assign Constant_out1 = 1'b0;
+
+  FIFO_block u_FIFO (.clk(clk),
+                     .reset(reset),
+                     .enb(enb),
+                     .in_re(dataIn_re),  // sfix16_En14
+                     .in_im(dataIn_im),  // sfix16_En14
+                     .push(strobe),
+                     .pop(Logical_Operator_out1),
+                     .reset_1(Constant_out1),
+                     .out_re(FIFO_out1_re),  // sfix16_En14
+                     .out_im(FIFO_out1_im),  // sfix16_En14
+                     .validPop(FIFO_out3)
+                     );
+
+  assign dataOut_re = FIFO_out1_re;
+
+  assign dataOut_im = FIFO_out1_im;
+
+  assign validOut = FIFO_out3;
+
+endmodule 
+
+`timescale 1 ns / 1 ns
+
+module FIFO_block
+          (clk,
+           reset,
+           enb,
+           in_re,
+           in_im,
+           push,
+           pop,
+           reset_1,
+           out_re,
+           out_im,
+           validPop);
+
+
+  input   clk;
+  input   reset;
+  input   enb;
+  input   signed [15:0] in_re;  // sfix16_En14
+  input   signed [15:0] in_im;  // sfix16_En14
+  input   push;
+  input   pop;
+  input   reset_1;
+  output  signed [15:0] out_re;  // sfix16_En14
+  output  signed [15:0] out_im;  // sfix16_En14
+  output  validPop;
+
+
+  reg  Delay1_out1;
+  wire Validate_Input_Push_Pop_out1;
+  wire Validate_Input_Push_Pop_out2;
+  wire [4:0] count_step;  // ufix5
+  wire [4:0] count_from;  // ufix5
+  wire [4:0] count_reset;  // ufix5
+  reg [4:0] Push_Counter_out1;  // ufix5
+  wire [4:0] count;  // ufix5
+  wire need_to_wrap;
+  wire [4:0] count_value;  // ufix5
+  wire [4:0] count_1;  // ufix5
+  wire [4:0] count_2;  // ufix5
+  wire [4:0] count_step_1;  // ufix5
+  wire [4:0] count_from_1;  // ufix5
+  wire [4:0] count_reset_1;  // ufix5
+  reg [4:0] Pop_Counter_out1;  // ufix5
+  wire [4:0] count_3;  // ufix5
+  wire need_to_wrap_1;
+  wire [4:0] count_value_1;  // ufix5
+  wire [4:0] count_4;  // ufix5
+  wire [4:0] count_5;  // ufix5
+  wire signed [15:0] Simple_Dual_Port_RAM_out1_re;  // sfix16_En14
+  wire signed [15:0] Simple_Dual_Port_RAM_out1_im;  // sfix16_En14
+
+
+  always @(posedge clk or posedge reset)
+    begin : Delay1_process
+      if (reset == 1'b1) begin
+        Delay1_out1 <= 1'b0;
+      end
+      else begin
+        if (enb) begin
+          Delay1_out1 <= reset_1;
+        end
+      end
+    end
+
+  Validate_Input_Push_Pop_block u_Validate_Input_Push_Pop (.clk(clk),
+                                                           .reset(reset),
+                                                           .enb(enb),
+                                                           .rst(reset_1),
+                                                           .push(push),
+                                                           .pop(pop),
+                                                           .valid_push(Validate_Input_Push_Pop_out1),
+                                                           .valid_pop(Validate_Input_Push_Pop_out2)
+                                                           );
+
+  // Count limited, Unsigned Counter
+  //  initial value   = 0
+  //  step value      = 1
+  //  count to value  = 31
+  assign count_step = 5'b00001;
+
+  assign count_from = 5'b00000;
+
+  assign count_reset = 5'b00000;
+
+  assign count = Push_Counter_out1 + count_step;
+
+  assign need_to_wrap = Push_Counter_out1 == 5'b11111;
+
+  assign count_value = (need_to_wrap == 1'b0 ? count :
+              count_from);
+
+  assign count_1 = (Validate_Input_Push_Pop_out1 == 1'b0 ? Push_Counter_out1 :
+              count_value);
+
+  assign count_2 = (Delay1_out1 == 1'b0 ? count_1 :
+              count_reset);
+
+  always @(posedge clk or posedge reset)
+    begin : Push_Counter_process
+      if (reset == 1'b1) begin
+        Push_Counter_out1 <= 5'b00000;
+      end
+      else begin
+        if (enb) begin
+          Push_Counter_out1 <= count_2;
+        end
+      end
+    end
+
+  // Count limited, Unsigned Counter
+  //  initial value   = 0
+  //  step value      = 1
+  //  count to value  = 31
+  assign count_step_1 = 5'b00001;
+
+  assign count_from_1 = 5'b00000;
+
+  assign count_reset_1 = 5'b00000;
+
+  assign count_3 = Pop_Counter_out1 + count_step_1;
+
+  assign need_to_wrap_1 = Pop_Counter_out1 == 5'b11111;
+
+  assign count_value_1 = (need_to_wrap_1 == 1'b0 ? count_3 :
+              count_from_1);
+
+  assign count_4 = (Validate_Input_Push_Pop_out2 == 1'b0 ? Pop_Counter_out1 :
+              count_value_1);
+
+  assign count_5 = (Delay1_out1 == 1'b0 ? count_4 :
+              count_reset_1);
+
+  always @(posedge clk or posedge reset)
+    begin : Pop_Counter_process
+      if (reset == 1'b1) begin
+        Pop_Counter_out1 <= 5'b00000;
+      end
+      else begin
+        if (enb) begin
+          Pop_Counter_out1 <= count_5;
+        end
+      end
+    end
+
+  SimpleDualPortRAM_generic #(.AddrWidth(5),
+                              .DataWidth(16)
+                              )
+                            u_Simple_Dual_Port_RAM (.clk(clk),
+                                                    .enb(enb),
+                                                    .wr_din_re(in_re),
+                                                    .wr_din_im(in_im),
+                                                    .wr_addr(Push_Counter_out1),
+                                                    .wr_en(Validate_Input_Push_Pop_out1),
+                                                    .rd_addr(Pop_Counter_out1),
+                                                    .dout_re(Simple_Dual_Port_RAM_out1_re),
+                                                    .dout_im(Simple_Dual_Port_RAM_out1_im)
+                                                    );
+
+  assign out_re = Simple_Dual_Port_RAM_out1_re;
+
+  assign out_im = Simple_Dual_Port_RAM_out1_im;
+
+  assign validPop = Validate_Input_Push_Pop_out2;
+
+endmodule 
+
+`timescale 1 ns / 1 ns
+
+module Validate_Input_Push_Pop_block
+          (clk,
+           reset,
+           enb,
+           rst,
+           push,
+           pop,
+           valid_push,
+           valid_pop);
+
+
+  input   clk;
+  input   reset;
+  input   enb;
+  input   rst;
+  input   push;
+  input   pop;
+  output  valid_push;
+  output  valid_pop;
+
+
+  wire Constant_out1;
+  wire Constant1_out1;
+  reg [5:0] Delay_out1;  // ufix6
+  wire Compare_To_Constant1_out1;
+  wire Logical_Operator7_out1;
+  wire Switch_out1;
+  wire Logical_Operator9_out1;
+  wire Logical_Operator1_out1;
+  wire [5:0] count;  // ufix6
+  wire Compare_To_Constant_out1;
+  wire pop_on_empty_FIFO;
+  wire Logical_Operator6_out1;
+  wire Logical_Operator8_out1;
+  wire Logical_Operator5_out1;
+  wire push_on_full_FIFO;
+  wire Logical_Operator2_out1;
+
+
+  assign Constant_out1 = 1'b1;
+
+  assign Constant1_out1 = 1'b0;
+
+  Compare_To_Constant1_block u_Compare_To_Constant1 (.u(Delay_out1),  // ufix6
+                                                     .y(Compare_To_Constant1_out1)
+                                                     );
+
+  assign Switch_out1 = (Logical_Operator7_out1 == 1'b0 ? Constant_out1 :
+              Constant1_out1);
+
+  assign Logical_Operator1_out1 = Logical_Operator9_out1 ^ Logical_Operator7_out1;
+
+  MATLAB_Function_block1 u_MATLAB_Function (.clk(clk),
+                                            .reset(reset),
+                                            .enb(enb),
+                                            .rst(rst),
+                                            .enb_1(Logical_Operator1_out1),
+                                            .dir(Switch_out1),
+                                            .count(count)  // ufix6
+                                            );
+
+  always @(posedge clk or posedge reset)
+    begin : Delay_process
+      if (reset == 1'b1) begin
+        Delay_out1 <= 6'b000000;
+      end
+      else begin
+        if (enb) begin
+          Delay_out1 <= count;
+        end
+      end
+    end
+
+  Compare_To_Constant_block u_Compare_To_Constant (.u(Delay_out1),  // ufix6
+                                                   .y(Compare_To_Constant_out1)
+                                                   );
+
+  assign pop_on_empty_FIFO = Compare_To_Constant_out1 & pop;
+
+  assign Logical_Operator6_out1 =  ~ pop_on_empty_FIFO;
+
+  assign Logical_Operator7_out1 = pop & Logical_Operator6_out1;
+
+  assign Logical_Operator8_out1 =  ~ Logical_Operator7_out1;
+
+  assign Logical_Operator5_out1 = push & Logical_Operator8_out1;
+
+  assign push_on_full_FIFO = Logical_Operator5_out1 & Compare_To_Constant1_out1;
+
+  assign Logical_Operator2_out1 =  ~ push_on_full_FIFO;
+
+  assign Logical_Operator9_out1 = push & Logical_Operator2_out1;
+
+  assign valid_push = Logical_Operator9_out1;
+
+  assign valid_pop = Logical_Operator7_out1;
+
+endmodule 
+
+`timescale 1 ns / 1 ns
+module Compare_To_Constant1_block
+          (u,
+           y);
+  input   [5:0] u;  // ufix6
+  output  y;
+  wire [5:0] Constant_out1;  // ufix6
+  wire Compare_out1;
+  assign Constant_out1 = 6'b100000;
+  assign Compare_out1 = u == Constant_out1;
+  assign y = Compare_out1;
+endmodule  // Compare_To_Constant1_block
+
+
+`timescale 1 ns / 1 ns
+
+module MATLAB_Function_block1
+          (clk,
+           reset,
+           enb,
+           rst,
+           enb_1,
+           dir,
+           count);
+
+
+  input   clk;
+  input   reset;
+  input   enb;
+  input   rst;
+  input   enb_1;
+  input   dir;
+  output  [5:0] count;  // ufix6
+
+
+  reg [5:0] count_1;  // ufix6
+  reg [5:0] countReg;  // ufix6
+  reg [5:0] countReg_next;  // ufix6
+  reg [5:0] countReg_temp;  // ufix6
+  reg signed [7:0] sub_temp;  // sfix8
+  reg [6:0] cast;  // ufix7
+  reg [6:0] add_temp;  // ufix7
+  reg [6:0] t_0;  // ufix7
+  reg [6:0] t_1;  // ufix7
+  reg signed [7:0] t_2;  // sfix8
+
+
+  always @(posedge clk or posedge reset)
+    begin : MATLAB_Function_process
+      if (reset == 1'b1) begin
+        countReg <= 6'b000000;
+      end
+      else begin
+        if (enb) begin
+          countReg <= countReg_next;
+        end
+      end
+    end
+
+  always @(countReg, dir, enb_1, rst) begin
+    sub_temp = 8'sb00000000;
+    add_temp = 7'b0000000;
+    t_0 = 7'b0000000;
+    t_1 = 7'b0000000;
+    t_2 = 8'sb00000000;
+    cast = 7'b0000000;
+    countReg_temp = countReg;
+    if (rst) begin
+      countReg_temp = 6'b000000;
+    end
+    else if (enb_1) begin
+      if (dir) begin
+        if (countReg == 6'b100000) begin
+          countReg_temp = 6'b000000;
+        end
+        else begin
+          t_0 = {1'b0, countReg};
+          add_temp = t_0 + 7'b0000001;
+          if (add_temp[6] != 1'b0) begin
+            countReg_temp = 6'b111111;
+          end
+          else begin
+            countReg_temp = add_temp[5:0];
+          end
+        end
+      end
+      else if (countReg == 6'b000000) begin
+        countReg_temp = 6'b100000;
+      end
+      else begin
+        t_1 = {1'b0, countReg};
+        t_2 = {1'b0, t_1};
+        sub_temp = t_2 - 8'sb00000001;
+        if (sub_temp[7] == 1'b1) begin
+          cast = 7'b0000000;
+        end
+        else begin
+          cast = sub_temp[6:0];
+        end
+        if (cast[6] != 1'b0) begin
+          countReg_temp = 6'b111111;
+        end
+        else begin
+          countReg_temp = cast[5:0];
+        end
+      end
+    end
+    count_1 = countReg_temp;
+    countReg_next = countReg_temp;
+  end
+
+  assign count = count_1;
+
+endmodule
+
+`timescale 1 ns / 1 ns
+module Compare_To_Constant_block
+          (u,
+           y);
+  input   [5:0] u;  // ufix6
+  output  y;
+  wire [5:0] Constant_out1;  // ufix6
+  wire Compare_out1;
+  assign Constant_out1 = 6'b000000;
+  assign Compare_out1 = u == Constant_out1;
+  assign y = Compare_out1;
+endmodule 
+
+`timescale 1 ns / 1 ns
+
+module SimpleDualPortRAM_generic
+          (clk,
+           enb,
+           wr_din_re,
+           wr_din_im,
+           wr_addr,
+           wr_en,
+           rd_addr,
+           dout_re,
+           dout_im);
+
+  parameter integer AddrWidth  = 1;
+  parameter integer DataWidth  = 1;
+
+  input   clk;
+  input   enb;
+  input   signed [DataWidth - 1:0] wr_din_re;  // parameterized width
+  input   signed [DataWidth - 1:0] wr_din_im;  // parameterized width
+  input   [AddrWidth - 1:0] wr_addr;  // parameterized width
+  input   wr_en;  // ufix1
+  input   [AddrWidth - 1:0] rd_addr;  // parameterized width
+  output  signed [DataWidth - 1:0] dout_re;  // parameterized width
+  output  signed [DataWidth - 1:0] dout_im;  // parameterized width
+
+
+  reg  [DataWidth*2 - 1:0] ram [2**AddrWidth - 1:0];
+  reg  [DataWidth*2 - 1:0] data_int;
+  integer i;
+
+  initial begin
+    for (i=0; i<=2**AddrWidth - 1; i=i+1) begin
+      ram[i] = 0;
+    end
+    data_int = 0;
+  end
+
+
+  always @(posedge clk)
+    begin : SimpleDualPortRAM_generic_process
+      if (enb == 1'b1) begin
+        if (wr_en == 1'b1) begin
+          ram[wr_addr] <= {wr_din_re, wr_din_im};
+        end
+        data_int <= ram[rd_addr];
+      end
+    end
+
+  assign dout_re = data_int[DataWidth*2-1:DataWidth];
+  assign dout_im = data_int[DataWidth-1:0];
+
+endmodule
+
+`timescale 1ns / 1ps
+
+module tb_QPSK_Symbol_Timing_Sync_Top;
+
+    parameter DATA_WIDTH   = 16;
+    parameter MU_WIDTH     = 10;
+    parameter MU_FRAC      = 9;
+    parameter COEFF_WIDTH  = 16;
+    parameter ACC_WIDTH    = 32;
+    parameter MEM_DEPTH    = 16384;
+
+    reg clk = 0;
+    reg rst = 1;
+
+    reg signed [DATA_WIDTH-1:0] I_mem [0:MEM_DEPTH-1];
+    reg signed [DATA_WIDTH-1:0] Q_mem [0:MEM_DEPTH-1];
+
+    reg signed [DATA_WIDTH-1:0] I_in = 0;
+    reg signed [DATA_WIDTH-1:0] Q_in = 0;
+
+    wire signed [DATA_WIDTH-1:0] I_out;
+    wire signed [DATA_WIDTH-1:0] Q_out;
+    wire                         valid_out;
+
+    integer i;
+    integer f_i_log, f_q_log;
+
+    // Instantiate DUT
+    QPSK_Symbol_Timing_Sync_Top #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .MU_WIDTH(MU_WIDTH),
+        .MU_FRAC(MU_FRAC),
+        .COEFF_WIDTH(COEFF_WIDTH),
+        .ACC_WIDTH(ACC_WIDTH)
+    ) dut (
+        .clk(clk),
+        .rst(rst),
+        .I_in(I_in),
+        .Q_in(Q_in),
+        .I_out(I_out),
+        .Q_out(Q_out),
+        .valid_out(valid_out)
+    );
+
+    // Clock generation: 100 MHz
+    always #5 clk = ~clk;
+
+    // Log file open
+    initial begin
+        f_i_log = $fopen("C:/Users/rfsd/Desktop/1.txt", "w");
+        f_q_log = $fopen("C:/Users/rfsd/Desktop/2.txt", "w");
+
+        if (f_i_log == 0 || f_q_log == 0) begin
+            $display("ERROR opening output log files.");
+            $finish;
+        end
+    end
+
+    // Header printing flag
+    reg header_printed = 0;
+
+    // Output logging on valid_out
+    always @(posedge clk) begin
+        if (!rst && valid_out) begin
+            $fwrite(f_i_log, "%h\n", I_out);
+            $fwrite(f_q_log, "%h\n", Q_out);
+            $fflush(f_i_log);
+            $fflush(f_q_log);
+
+            if (!header_printed) begin
+                $display("Time(ns) |   I_in |  Q_in | I_out | Q_out | valid_out | I_interp | Q_interp |   e_k   |  e_k_zs |   v_k   |   mu");
+                header_printed = 1;
+            end
+
+            if ($time <= 1000) begin
+                $display("%8t | %6d | %6d | %6d | %6d |     %1b      | %8d | %8d | %7d | %7d | %7d | %4d",
+                    $time,
+                    I_in, Q_in,
+                    I_out, Q_out,
+                    valid_out,
+                    dut.interp_I.I_interp,   // Cubic interpolated I
+                    dut.interp_Q.I_interp,   // Cubic interpolated Q
+                    dut.ted_e,               // TED output (44-bit)
+                    dut.e_k_zs,              // TED truncated
+                    dut.loop_filter_inst.v_k,
+                    dut.nco_update_inst.mu
+                );
+            end
+        end
+    end
+
+    // Stimulus
+    initial begin
+        $readmemh("C:/Users/rfsd/Downloads/SYNC_files/python_i.txt", I_mem);
+        $readmemh("C:/Users/rfsd/Downloads/SYNC_files/python_q.txt", Q_mem);
+
+        #20 rst = 0;
+
+        for (i = 0; i < MEM_DEPTH; i = i + 1) begin
+            @(posedge clk);
+            I_in <= I_mem[i];
+            Q_in <= Q_mem[i];
+        end
+
+        I_in <= 0;
+        Q_in <= 0;
+
+        repeat (200) @(posedge clk);
+
+        $fclose(f_i_log);
+        $fclose(f_q_log);
+
+        $display("Simulation done. Output files written.");
+        $stop;
+    end
+
+endmodule
+
+

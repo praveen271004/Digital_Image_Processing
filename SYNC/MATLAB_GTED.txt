@@ -1,0 +1,2514 @@
+
+`timescale 1 ns / 1 ns
+
+module Symbol_Synchronizer1
+          (clk,
+           reset,
+           enb,
+           dataIn_re,
+           dataIn_im,
+           validIn,
+           dataOut_re,
+           dataOut_im,
+           validOut);
+
+
+  input   clk;
+  input   reset;
+  input   enb;
+  input   signed [15:0] dataIn_re;  // sfix16_En14
+  input   signed [15:0] dataIn_im;  // sfix16_En14
+  input   validIn;
+  output  signed [15:0] dataOut_re;  // sfix16_En14
+  output  signed [15:0] dataOut_im;  // sfix16_En14
+  output  validOut;
+
+
+  reg signed [15:0] Integer_Delay1_out1_re;  // sfix16_En14
+  reg signed [15:0] Integer_Delay1_out1_im;  // sfix16_En14
+  wire Underflow;
+  reg  Integer_Delay3_out1;
+  reg  [11:0] Delay5_reg;  // ufix1 [12]
+  wire Delay5_out1;
+  reg  Delay9_out1;
+  wire signed [20:0] Interpolation_Filter_out1_re;  // sfix21_En14
+  wire signed [20:0] Interpolation_Filter_out1_im;  // sfix21_En14
+  reg signed [20:0] Delay8_out1_re;  // sfix21_En14
+  reg signed [20:0] Delay8_out1_im;  // sfix21_En14
+  wire signed [43:0] Gardner_TED_out1;  // sfix44_En28
+  reg signed [43:0] Delay3_out1;  // sfix44_En28
+  wire signed [10:0] Loop_Filter_out1;  // sfix11_En10
+  reg signed [10:0] Delay4_out1;  // sfix11_En10
+  wire signed [10:0] mu;  // sfix11_En10
+  reg signed [10:0] Integer_Delay4_out1;  // sfix11_En10
+  reg signed [20:0] Delay1_out1_re;  // sfix21_En14
+  reg signed [20:0] Delay1_out1_im;  // sfix21_En14
+  wire signed [15:0] Data_Type_Conversion4_out1_re;  // sfix16_En14
+  wire signed [15:0] Data_Type_Conversion4_out1_im;  // sfix16_En14
+  reg  Delay2_out1;
+  reg  Integer_Delay2_out1;
+  reg  [11:0] Delay7_reg;  // ufix1 [12]
+  wire Delay7_out1;
+  reg  Delay6_out1;
+  wire signed [15:0] Rate_Handle_out1_re;  // sfix16_En14
+  wire signed [15:0] Rate_Handle_out1_im;  // sfix16_En14
+  wire Rate_Handle_out2;
+
+  // After Symbol Synchronization
+
+
+  always @(posedge clk or posedge reset)
+    begin : Integer_Delay1_process
+      if (reset == 1'b1) begin
+        Integer_Delay1_out1_re <= 16'sb0000000000000000;
+        Integer_Delay1_out1_im <= 16'sb0000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Integer_Delay1_out1_re <= dataIn_re;
+          Integer_Delay1_out1_im <= dataIn_im;
+        end
+      end
+    end
+
+  always @(posedge clk or posedge reset)
+    begin : Integer_Delay3_process
+      if (reset == 1'b1) begin
+        Integer_Delay3_out1 <= 1'b0;
+      end
+      else begin
+        if (enb) begin
+          Integer_Delay3_out1 <= Underflow;
+        end
+      end
+    end
+
+  always @(posedge clk or posedge reset)
+    begin : Delay5_process
+      if (reset == 1'b1) begin
+        Delay5_reg <= {12{1'b0}};
+      end
+      else begin
+        if (enb) begin
+          Delay5_reg[0] <= Integer_Delay3_out1;
+          Delay5_reg[32'sd11:32'sd1] <= Delay5_reg[32'sd10:32'sd0];
+        end
+      end
+    end
+
+  assign Delay5_out1 = Delay5_reg[11];
+
+  always @(posedge clk or posedge reset)
+    begin : Delay9_process
+      if (reset == 1'b1) begin
+        Delay9_out1 <= 1'b0;
+      end
+      else begin
+        if (enb) begin
+          Delay9_out1 <= Delay5_out1;
+        end
+      end
+    end
+
+  always @(posedge clk or posedge reset)
+    begin : Delay8_process
+      if (reset == 1'b1) begin
+        Delay8_out1_re <= 21'sb000000000000000000000;
+        Delay8_out1_im <= 21'sb000000000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay8_out1_re <= Interpolation_Filter_out1_re;
+          Delay8_out1_im <= Interpolation_Filter_out1_im;
+        end
+      end
+    end
+
+  Gardner_TED u_Gardner_TED (.clk(clk),
+                             .reset(reset),
+                             .enb(enb),
+                             .data_re(Delay8_out1_re),  // sfix21_En14
+                             .data_im(Delay8_out1_im),  // sfix21_En14
+                             .strobe(Delay9_out1),
+                             .e(Gardner_TED_out1)  // sfix44_En28
+                             );
+
+  always @(posedge clk or posedge reset)
+    begin : Delay3_process
+      if (reset == 1'b1) begin
+        Delay3_out1 <= 44'sh00000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay3_out1 <= Gardner_TED_out1;
+        end
+      end
+    end
+
+  Loop_Filter_block1 u_Loop_Filter (.clk(clk),
+                                    .reset(reset),
+                                    .enb(enb),
+                                    .e(Delay3_out1),  // sfix44_En28
+                                    .v(Loop_Filter_out1)  // sfix11_En10
+                                    );
+
+  always @(posedge clk or posedge reset)
+    begin : Delay4_process
+      if (reset == 1'b1) begin
+        Delay4_out1 <= 11'sb00000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay4_out1 <= Loop_Filter_out1;
+        end
+      end
+    end
+
+  Interpolation_Control u_Interpolation_Control (.clk(clk),
+                                                 .reset(reset),
+                                                 .enb(enb),
+                                                 .Delta(Delay4_out1),  // sfix11_En10
+                                                 .mu(mu),  // sfix11_En10
+                                                 .Underflow(Underflow)
+                                                 );
+
+  always @(posedge clk or posedge reset)
+    begin : Integer_Delay4_process
+      if (reset == 1'b1) begin
+        Integer_Delay4_out1 <= 11'sb00000000000;
+      end
+      else begin
+        if (enb) begin
+          Integer_Delay4_out1 <= mu;
+        end
+      end
+    end
+
+  Interpolation_Filter u_Interpolation_Filter (.clk(clk),
+                                               .reset(reset),
+                                               .enb(enb),
+                                               .In_re(Integer_Delay1_out1_re),  // sfix16_En14
+                                               .In_im(Integer_Delay1_out1_im),  // sfix16_En14
+                                               .mu(Integer_Delay4_out1),  // sfix11_En10
+                                               .interpolant_re(Interpolation_Filter_out1_re),  // sfix21_En14
+                                               .interpolant_im(Interpolation_Filter_out1_im)  // sfix21_En14
+                                               );
+
+  always @(posedge clk or posedge reset)
+    begin : Delay1_process
+      if (reset == 1'b1) begin
+        Delay1_out1_re <= 21'sb000000000000000000000;
+        Delay1_out1_im <= 21'sb000000000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay1_out1_re <= Interpolation_Filter_out1_re;
+          Delay1_out1_im <= Interpolation_Filter_out1_im;
+        end
+      end
+    end
+
+  assign Data_Type_Conversion4_out1_re = Delay1_out1_re[15:0];
+  assign Data_Type_Conversion4_out1_im = Delay1_out1_im[15:0];
+
+  always @(posedge clk or posedge reset)
+    begin : Delay2_process
+      if (reset == 1'b1) begin
+        Delay2_out1 <= 1'b0;
+      end
+      else begin
+        if (enb) begin
+          Delay2_out1 <= Delay5_out1;
+        end
+      end
+    end
+
+  always @(posedge clk or posedge reset)
+    begin : Integer_Delay2_process
+      if (reset == 1'b1) begin
+        Integer_Delay2_out1 <= 1'b0;
+      end
+      else begin
+        if (enb) begin
+          Integer_Delay2_out1 <= validIn;
+        end
+      end
+    end
+
+  always @(posedge clk or posedge reset)
+    begin : Delay7_process
+      if (reset == 1'b1) begin
+        Delay7_reg <= {12{1'b0}};
+      end
+      else begin
+        if (enb) begin
+          Delay7_reg[0] <= Integer_Delay2_out1;
+          Delay7_reg[32'sd11:32'sd1] <= Delay7_reg[32'sd10:32'sd0];
+        end
+      end
+    end
+
+  assign Delay7_out1 = Delay7_reg[11];
+
+  always @(posedge clk or posedge reset)
+    begin : Delay6_process
+      if (reset == 1'b1) begin
+        Delay6_out1 <= 1'b0;
+      end
+      else begin
+        if (enb) begin
+          Delay6_out1 <= Delay7_out1;
+        end
+      end
+    end
+
+  Rate_Handle u_Rate_Handle (.clk(clk),
+                             .reset(reset),
+                             .enb(enb),
+                             .dataIn_re(Data_Type_Conversion4_out1_re),  // sfix16_En14
+                             .dataIn_im(Data_Type_Conversion4_out1_im),  // sfix16_En14
+                             .strobe(Delay2_out1),
+                             .validIn(Delay6_out1),
+                             .dataOut_re(Rate_Handle_out1_re),  // sfix16_En14
+                             .dataOut_im(Rate_Handle_out1_im),  // sfix16_En14
+                             .validOut(Rate_Handle_out2)
+                             );
+
+  assign dataOut_re = Rate_Handle_out1_re;
+
+  assign dataOut_im = Rate_Handle_out1_im;
+
+  assign validOut = Rate_Handle_out2;
+  
+  
+integer f_valid_log;
+
+initial begin
+  f_valid_log = $fopen("C:/Users/rfsd/Desktop/VK18/Symbol_synchronization_kailash/SymSync_vokay_q_out.txt", "w");
+  if (f_valid_log == 0) begin
+    $display("ERROR opening log file.");
+    $finish;
+  end
+end
+
+always @(posedge clk) begin
+  if (!reset) begin
+    $fwrite(f_valid_log, "%h\n", dataOut_re);  // <-- Only the value
+    $fflush(f_valid_log);
+  end
+end
+
+
+
+endmodule  // Symbol_Synchronizer1
+
+
+
+
+
+//////////////////////////////
+
+
+
+
+
+
+
+`timescale 1 ns / 1 ns
+
+module Gardner_TED
+          (clk,
+           reset,
+           enb,
+           data_re,
+           data_im,
+           strobe,
+           e);
+
+
+  input   clk;
+  input   reset;
+  input   enb;
+  input   signed [20:0] data_re;  // sfix21_En14
+  input   signed [20:0] data_im;  // sfix21_En14
+  input   strobe;
+  output  signed [43:0] e;  // sfix44_En28
+
+
+  reg  [3:0] Delay10_reg;  // ufix1 [4]
+  wire Delay10_out1;
+  wire signed [43:0] Constant_out1;  // sfix44_En28
+  wire signed [43:0] GTED_out1;  // sfix44_En28
+  wire signed [43:0] Switch_out1;  // sfix44_En28
+
+
+  always @(posedge clk or posedge reset)
+    begin : Delay10_process
+      if (reset == 1'b1) begin
+        Delay10_reg <= {4{1'b0}};
+      end
+      else begin
+        if (enb) begin
+          Delay10_reg[0] <= strobe;
+          Delay10_reg[32'sd3:32'sd1] <= Delay10_reg[32'sd2:32'sd0];
+        end
+      end
+    end
+
+  assign Delay10_out1 = Delay10_reg[3];
+
+  assign Constant_out1 = 44'sh00000000000;
+
+  GTED u_GTED (.clk(clk),
+               .reset(reset),
+               .enb(enb),
+               .In1_re(data_re),  // sfix21_En14
+               .In1_im(data_im),  // sfix21_En14
+               .Out1(GTED_out1)  // sfix44_En28
+               );
+
+  assign Switch_out1 = (Delay10_out1 == 1'b0 ? Constant_out1 :
+              GTED_out1);
+
+  assign e = Switch_out1;
+
+endmodule  // Gardner_TED
+
+
+
+
+/////////////////////////////////////////////////////////////////////////
+
+
+
+
+`timescale 1 ns / 1 ns
+
+module GTED
+          (clk,
+           reset,
+           enb,
+           In1_re,
+           In1_im,
+           Out1);
+
+
+  input   clk;
+  input   reset;
+  input   enb;
+  input   signed [20:0] In1_re;  // sfix21_En14
+  input   signed [20:0] In1_im;  // sfix21_En14
+  output  signed [43:0] Out1;  // sfix44_En28
+
+
+  reg signed [20:0] Delay_out1;  // sfix21_En14
+  reg signed [20:0] Delay1_out1;  // sfix21_En14
+  reg signed [20:0] Delay8_reg [0:1];  // sfix21 [2]
+  wire signed [20:0] Delay8_reg_next [0:1];  // sfix21_En14 [2]
+  wire signed [20:0] Delay8_out1;  // sfix21_En14
+  reg signed [20:0] Delay2_out1;  // sfix21_En14
+  reg signed [20:0] Delay3_out1;  // sfix21_En14
+  wire signed [21:0] Add1_sub_cast;  // sfix22_En14
+  wire signed [21:0] Add1_sub_cast_1;  // sfix22_En14
+  wire signed [21:0] Add1_out1;  // sfix22_En14
+  reg signed [21:0] Delay9_reg [0:1];  // sfix22 [2]
+  wire signed [21:0] Delay9_reg_next [0:1];  // sfix22_En14 [2]
+  wire signed [21:0] Delay9_out1;  // sfix22_En14
+  wire signed [42:0] Product_out1;  // sfix43_En28
+  reg signed [42:0] Delay10_reg [0:1];  // sfix43 [2]
+  wire signed [42:0] Delay10_reg_next [0:1];  // sfix43_En28 [2]
+  wire signed [42:0] Delay10_out1;  // sfix43_En28
+  reg signed [20:0] Delay4_out1;  // sfix21_En14
+  reg signed [20:0] Delay5_out1;  // sfix21_En14
+  reg signed [20:0] Delay11_reg [0:1];  // sfix21 [2]
+  wire signed [20:0] Delay11_reg_next [0:1];  // sfix21_En14 [2]
+  wire signed [20:0] Delay11_out1;  // sfix21_En14
+  reg signed [20:0] Delay6_out1;  // sfix21_En14
+  reg signed [20:0] Delay7_out1;  // sfix21_En14
+  wire signed [21:0] Add2_sub_cast;  // sfix22_En14
+  wire signed [21:0] Add2_sub_cast_1;  // sfix22_En14
+  wire signed [21:0] Add2_out1;  // sfix22_En14
+  reg signed [21:0] Delay12_reg [0:1];  // sfix22 [2]
+  wire signed [21:0] Delay12_reg_next [0:1];  // sfix22_En14 [2]
+  wire signed [21:0] Delay12_out1;  // sfix22_En14
+  wire signed [42:0] Product1_out1;  // sfix43_En28
+  reg signed [42:0] Delay13_reg [0:1];  // sfix43 [2]
+  wire signed [42:0] Delay13_reg_next [0:1];  // sfix43_En28 [2]
+  wire signed [42:0] Delay13_out1;  // sfix43_En28
+  wire signed [43:0] Add_add_cast;  // sfix44_En28
+  wire signed [43:0] Add_add_cast_1;  // sfix44_En28
+  wire signed [43:0] Add_out1;  // sfix44_En28
+  reg signed [31:0] Delay8_t_0_0;  // int32
+  reg signed [31:0] Delay8_t_1;  // int32
+  reg signed [31:0] Delay9_t_0_0;  // int32
+  reg signed [31:0] Delay9_t_1;  // int32
+  reg signed [31:0] Delay10_t_0_0;  // int32
+  reg signed [31:0] Delay10_t_1;  // int32
+  reg signed [31:0] Delay11_t_0_0;  // int32
+  reg signed [31:0] Delay11_t_1;  // int32
+  reg signed [31:0] Delay12_t_0_0;  // int32
+  reg signed [31:0] Delay12_t_1;  // int32
+  reg signed [31:0] Delay13_t_0_0;  // int32
+  reg signed [31:0] Delay13_t_1;  // int32
+
+
+  always @(posedge clk or posedge reset)
+    begin : Delay_process
+      if (reset == 1'b1) begin
+        Delay_out1 <= 21'sb000000000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay_out1 <= In1_re;
+        end
+      end
+    end
+
+  always @(posedge clk or posedge reset)
+    begin : Delay1_process
+      if (reset == 1'b1) begin
+        Delay1_out1 <= 21'sb000000000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay1_out1 <= Delay_out1;
+        end
+      end
+    end
+
+  always @(posedge clk or posedge reset)
+    begin : Delay8_process
+      if (reset == 1'b1) begin
+        for(Delay8_t_1 = 32'sd0; Delay8_t_1 <= 32'sd1; Delay8_t_1 = Delay8_t_1 + 32'sd1) begin
+          Delay8_reg[Delay8_t_1] <= 21'sb000000000000000000000;
+        end
+      end
+      else begin
+        if (enb) begin
+          for(Delay8_t_0_0 = 32'sd0; Delay8_t_0_0 <= 32'sd1; Delay8_t_0_0 = Delay8_t_0_0 + 32'sd1) begin
+            Delay8_reg[Delay8_t_0_0] <= Delay8_reg_next[Delay8_t_0_0];
+          end
+        end
+      end
+    end
+
+  assign Delay8_out1 = Delay8_reg[1];
+  assign Delay8_reg_next[0] = Delay1_out1;
+  assign Delay8_reg_next[1] = Delay8_reg[0];
+
+  always @(posedge clk or posedge reset)
+    begin : Delay2_process
+      if (reset == 1'b1) begin
+        Delay2_out1 <= 21'sb000000000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay2_out1 <= Delay1_out1;
+        end
+      end
+    end
+
+  always @(posedge clk or posedge reset)
+    begin : Delay3_process
+      if (reset == 1'b1) begin
+        Delay3_out1 <= 21'sb000000000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay3_out1 <= Delay2_out1;
+        end
+      end
+    end
+
+  assign Add1_sub_cast = {Delay3_out1[20], Delay3_out1};
+  assign Add1_sub_cast_1 = {In1_re[20], In1_re};
+  assign Add1_out1 = Add1_sub_cast - Add1_sub_cast_1;
+
+  always @(posedge clk or posedge reset)
+    begin : Delay9_process
+      if (reset == 1'b1) begin
+        for(Delay9_t_1 = 32'sd0; Delay9_t_1 <= 32'sd1; Delay9_t_1 = Delay9_t_1 + 32'sd1) begin
+          Delay9_reg[Delay9_t_1] <= 22'sb0000000000000000000000;
+        end
+      end
+      else begin
+        if (enb) begin
+          for(Delay9_t_0_0 = 32'sd0; Delay9_t_0_0 <= 32'sd1; Delay9_t_0_0 = Delay9_t_0_0 + 32'sd1) begin
+            Delay9_reg[Delay9_t_0_0] <= Delay9_reg_next[Delay9_t_0_0];
+          end
+        end
+      end
+    end
+
+  assign Delay9_out1 = Delay9_reg[1];
+  assign Delay9_reg_next[0] = Add1_out1;
+  assign Delay9_reg_next[1] = Delay9_reg[0];
+
+  assign Product_out1 = Delay8_out1 * Delay9_out1;
+
+  always @(posedge clk or posedge reset)
+    begin : Delay10_process
+      if (reset == 1'b1) begin
+        for(Delay10_t_1 = 32'sd0; Delay10_t_1 <= 32'sd1; Delay10_t_1 = Delay10_t_1 + 32'sd1) begin
+          Delay10_reg[Delay10_t_1] <= 43'sh00000000000;
+        end
+      end
+      else begin
+        if (enb) begin
+          for(Delay10_t_0_0 = 32'sd0; Delay10_t_0_0 <= 32'sd1; Delay10_t_0_0 = Delay10_t_0_0 + 32'sd1) begin
+            Delay10_reg[Delay10_t_0_0] <= Delay10_reg_next[Delay10_t_0_0];
+          end
+        end
+      end
+    end
+
+  assign Delay10_out1 = Delay10_reg[1];
+  assign Delay10_reg_next[0] = Product_out1;
+  assign Delay10_reg_next[1] = Delay10_reg[0];
+
+  always @(posedge clk or posedge reset)
+    begin : Delay4_process
+      if (reset == 1'b1) begin
+        Delay4_out1 <= 21'sb000000000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay4_out1 <= In1_im;
+        end
+      end
+    end
+
+  always @(posedge clk or posedge reset)
+    begin : Delay5_process
+      if (reset == 1'b1) begin
+        Delay5_out1 <= 21'sb000000000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay5_out1 <= Delay4_out1;
+        end
+      end
+    end
+
+  always @(posedge clk or posedge reset)
+    begin : Delay11_process
+      if (reset == 1'b1) begin
+        for(Delay11_t_1 = 32'sd0; Delay11_t_1 <= 32'sd1; Delay11_t_1 = Delay11_t_1 + 32'sd1) begin
+          Delay11_reg[Delay11_t_1] <= 21'sb000000000000000000000;
+        end
+      end
+      else begin
+        if (enb) begin
+          for(Delay11_t_0_0 = 32'sd0; Delay11_t_0_0 <= 32'sd1; Delay11_t_0_0 = Delay11_t_0_0 + 32'sd1) begin
+            Delay11_reg[Delay11_t_0_0] <= Delay11_reg_next[Delay11_t_0_0];
+          end
+        end
+      end
+    end
+
+  assign Delay11_out1 = Delay11_reg[1];
+  assign Delay11_reg_next[0] = Delay5_out1;
+  assign Delay11_reg_next[1] = Delay11_reg[0];
+
+  always @(posedge clk or posedge reset)
+    begin : Delay6_process
+      if (reset == 1'b1) begin
+        Delay6_out1 <= 21'sb000000000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay6_out1 <= Delay5_out1;
+        end
+      end
+    end
+
+  always @(posedge clk or posedge reset)
+    begin : Delay7_process
+      if (reset == 1'b1) begin
+        Delay7_out1 <= 21'sb000000000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay7_out1 <= Delay6_out1;
+        end
+      end
+    end
+
+  assign Add2_sub_cast = {Delay7_out1[20], Delay7_out1};
+  assign Add2_sub_cast_1 = {In1_im[20], In1_im};
+  assign Add2_out1 = Add2_sub_cast - Add2_sub_cast_1;
+
+  always @(posedge clk or posedge reset)
+    begin : Delay12_process
+      if (reset == 1'b1) begin
+        for(Delay12_t_1 = 32'sd0; Delay12_t_1 <= 32'sd1; Delay12_t_1 = Delay12_t_1 + 32'sd1) begin
+          Delay12_reg[Delay12_t_1] <= 22'sb0000000000000000000000;
+        end
+      end
+      else begin
+        if (enb) begin
+          for(Delay12_t_0_0 = 32'sd0; Delay12_t_0_0 <= 32'sd1; Delay12_t_0_0 = Delay12_t_0_0 + 32'sd1) begin
+            Delay12_reg[Delay12_t_0_0] <= Delay12_reg_next[Delay12_t_0_0];
+          end
+        end
+      end
+    end
+
+  assign Delay12_out1 = Delay12_reg[1];
+  assign Delay12_reg_next[0] = Add2_out1;
+  assign Delay12_reg_next[1] = Delay12_reg[0];
+
+  assign Product1_out1 = Delay11_out1 * Delay12_out1;
+
+  always @(posedge clk or posedge reset)
+    begin : Delay13_process
+      if (reset == 1'b1) begin
+        for(Delay13_t_1 = 32'sd0; Delay13_t_1 <= 32'sd1; Delay13_t_1 = Delay13_t_1 + 32'sd1) begin
+          Delay13_reg[Delay13_t_1] <= 43'sh00000000000;
+        end
+      end
+      else begin
+        if (enb) begin
+          for(Delay13_t_0_0 = 32'sd0; Delay13_t_0_0 <= 32'sd1; Delay13_t_0_0 = Delay13_t_0_0 + 32'sd1) begin
+            Delay13_reg[Delay13_t_0_0] <= Delay13_reg_next[Delay13_t_0_0];
+          end
+        end
+      end
+    end
+
+  assign Delay13_out1 = Delay13_reg[1];
+  assign Delay13_reg_next[0] = Product1_out1;
+  assign Delay13_reg_next[1] = Delay13_reg[0];
+
+  assign Add_add_cast = {Delay10_out1[42], Delay10_out1};
+  assign Add_add_cast_1 = {Delay13_out1[42], Delay13_out1};
+  assign Add_out1 = Add_add_cast + Add_add_cast_1;
+
+  assign Out1 = Add_out1;
+
+endmodule  // GTED
+
+/////////////////////////////////////////////////////////
+
+`timescale 1 ns / 1 ns
+
+module Loop_Filter_block1
+          (clk,
+           reset,
+           enb,
+           e,
+           v);
+
+
+  input   clk;
+  input   reset;
+  input   enb;
+  input   signed [43:0] e;  // sfix44_En28
+  output  signed [10:0] v;  // sfix11_En10
+
+
+  reg signed [43:0] Delay2_reg [0:1];  // sfix44 [2]
+  wire signed [43:0] Delay2_reg_next [0:1];  // sfix44_En28 [2]
+  wire signed [43:0] Delay2_out1;  // sfix44_En28
+  wire signed [67:0] K1_mul_temp;  // sfix68_En52
+  wire signed [29:0] K1_out1;  // sfix30_En23
+  reg signed [29:0] Delay3_reg [0:1];  // sfix30 [2]
+  wire signed [29:0] Delay3_reg_next [0:1];  // sfix30_En23 [2]
+  wire signed [29:0] Delay3_out1;  // sfix30_En23
+  reg signed [29:0] Delay1_out1;  // sfix30_En23
+  wire signed [67:0] K2_mul_temp;  // sfix68_En52
+  wire signed [29:0] K2_out1;  // sfix30_En23
+  reg signed [29:0] Delay5_reg [0:1];  // sfix30 [2]
+  wire signed [29:0] Delay5_reg_next [0:1];  // sfix30_En23 [2]
+  wire signed [29:0] Delay5_out1;  // sfix30_En23
+  reg signed [29:0] Delay6_out1;  // sfix30_En23
+  wire signed [29:0] Add2_out1;  // sfix30_En23
+  reg signed [29:0] Delay_out1;  // sfix30_En23
+  reg signed [29:0] Delay4_out1;  // sfix30_En23
+  wire signed [30:0] Add_add_cast;  // sfix31_En23
+  wire signed [30:0] Add_add_cast_1;  // sfix31_En23
+  wire signed [30:0] Add_out1;  // sfix31_En23
+  wire signed [10:0] Data_Type_Conversion17_out1;  // sfix11_En10
+  reg signed [31:0] Delay2_t_0_0;  // int32
+  reg signed [31:0] Delay2_t_1;  // int32
+  reg signed [31:0] Delay3_t_0_0;  // int32
+  reg signed [31:0] Delay3_t_1;  // int32
+  reg signed [31:0] Delay5_t_0_0;  // int32
+  reg signed [31:0] Delay5_t_1;  // int32
+
+  // Proportional-Plus-Integrator Loop Filter,
+  // Infinite DC Response to guarantee convergence
+
+
+  always @(posedge clk or posedge reset)
+    begin : Delay2_process
+      if (reset == 1'b1) begin
+        for(Delay2_t_1 = 32'sd0; Delay2_t_1 <= 32'sd1; Delay2_t_1 = Delay2_t_1 + 32'sd1) begin
+          Delay2_reg[Delay2_t_1] <= 44'sh00000000000;
+        end
+      end
+      else begin
+        if (enb) begin
+          for(Delay2_t_0_0 = 32'sd0; Delay2_t_0_0 <= 32'sd1; Delay2_t_0_0 = Delay2_t_0_0 + 32'sd1) begin
+            Delay2_reg[Delay2_t_0_0] <= Delay2_reg_next[Delay2_t_0_0];
+          end
+        end
+      end
+    end
+
+  assign Delay2_out1 = Delay2_reg[1];
+  assign Delay2_reg_next[0] = e;
+  assign Delay2_reg_next[1] = Delay2_reg[0];
+
+  assign K1_mul_temp = 24'sb111111011000000101001110 * Delay2_out1;
+  assign K1_out1 = K1_mul_temp[58:29];
+
+  always @(posedge clk or posedge reset)
+    begin : Delay3_process
+      if (reset == 1'b1) begin
+        for(Delay3_t_1 = 32'sd0; Delay3_t_1 <= 32'sd1; Delay3_t_1 = Delay3_t_1 + 32'sd1) begin
+          Delay3_reg[Delay3_t_1] <= 30'sb000000000000000000000000000000;
+        end
+      end
+      else begin
+        if (enb) begin
+          for(Delay3_t_0_0 = 32'sd0; Delay3_t_0_0 <= 32'sd1; Delay3_t_0_0 = Delay3_t_0_0 + 32'sd1) begin
+            Delay3_reg[Delay3_t_0_0] <= Delay3_reg_next[Delay3_t_0_0];
+          end
+        end
+      end
+    end
+
+  assign Delay3_out1 = Delay3_reg[1];
+  assign Delay3_reg_next[0] = K1_out1;
+  assign Delay3_reg_next[1] = Delay3_reg[0];
+
+  always @(posedge clk or posedge reset)
+    begin : Delay1_process
+      if (reset == 1'b1) begin
+        Delay1_out1 <= 30'sb000000000000000000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay1_out1 <= Delay3_out1;
+        end
+      end
+    end
+
+  assign K2_mul_temp = 24'sb111111111111011101111100 * Delay2_out1;
+  assign K2_out1 = K2_mul_temp[58:29];
+
+  always @(posedge clk or posedge reset)
+    begin : Delay5_process
+      if (reset == 1'b1) begin
+        for(Delay5_t_1 = 32'sd0; Delay5_t_1 <= 32'sd1; Delay5_t_1 = Delay5_t_1 + 32'sd1) begin
+          Delay5_reg[Delay5_t_1] <= 30'sb000000000000000000000000000000;
+        end
+      end
+      else begin
+        if (enb) begin
+          for(Delay5_t_0_0 = 32'sd0; Delay5_t_0_0 <= 32'sd1; Delay5_t_0_0 = Delay5_t_0_0 + 32'sd1) begin
+            Delay5_reg[Delay5_t_0_0] <= Delay5_reg_next[Delay5_t_0_0];
+          end
+        end
+      end
+    end
+
+  assign Delay5_out1 = Delay5_reg[1];
+  assign Delay5_reg_next[0] = K2_out1;
+  assign Delay5_reg_next[1] = Delay5_reg[0];
+
+  always @(posedge clk or posedge reset)
+    begin : Delay6_process
+      if (reset == 1'b1) begin
+        Delay6_out1 <= 30'sb000000000000000000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay6_out1 <= Delay5_out1;
+        end
+      end
+    end
+
+  always @(posedge clk or posedge reset)
+    begin : Delay_process
+      if (reset == 1'b1) begin
+        Delay_out1 <= 30'sb000000000000000000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay_out1 <= Add2_out1;
+        end
+      end
+    end
+
+  assign Add2_out1 = Delay6_out1 + Delay_out1;
+
+  always @(posedge clk or posedge reset)
+    begin : Delay4_process
+      if (reset == 1'b1) begin
+        Delay4_out1 <= 30'sb000000000000000000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay4_out1 <= Add2_out1;
+        end
+      end
+    end
+
+  assign Add_add_cast = {Delay1_out1[29], Delay1_out1};
+  assign Add_add_cast_1 = {Delay4_out1[29], Delay4_out1};
+  assign Add_out1 = Add_add_cast + Add_add_cast_1;
+
+  assign Data_Type_Conversion17_out1 = Add_out1[23:13];
+
+  assign v = Data_Type_Conversion17_out1;
+
+endmodule  // Loop_Filter_block1
+
+
+
+
+////////////////////////////////////////////////////////
+
+
+
+
+`timescale 1 ns / 1 ns
+
+module Interpolation_Control
+          (clk,
+           reset,
+           enb,
+           Delta,
+           mu,
+           Underflow);
+
+
+  input   clk;
+  input   reset;
+  input   enb;
+  input   signed [10:0] Delta;  // sfix11_En10
+  output  signed [10:0] mu;  // sfix11_En10
+  output  Underflow;
+
+
+  reg signed [10:0] mu_1;  // sfix11_En10
+  reg  Underflow_1;
+  reg signed [10:0] countReg;  // sfix11
+  reg  underflowReg;
+  reg signed [10:0] muReg;  // sfix11
+  reg signed [10:0] countReg_next;  // sfix11_En10
+  reg  underflowReg_next;
+  reg signed [10:0] muReg_next;  // sfix11_En10
+  reg signed [12:0] counter;  // sfix13_En10
+  reg signed [10:0] y;  // sfix11
+  reg signed [10:0] x;  // sfix11
+  reg signed [10:0] droppedBits;  // sfix11
+  reg signed [10:0] signBitVector;  // sfix11
+  reg signed [10:0] and_temp;  // sfix11_En10
+  reg signed [11:0] sub_cast;  // sfix12_En10
+  reg signed [11:0] sub_cast_0;  // sfix12_En10
+  reg signed [11:0] sub_temp;  // sfix12_En10
+  reg signed [12:0] sub_cast_1;  // sfix13_En10
+  reg signed [13:0] add_cast;  // sfix14_En10
+  reg signed [14:0] add_cast_0;  // sfix15_En10
+  reg signed [14:0] add_temp;  // sfix15_En10
+  reg signed [13:0] cast;  // sfix14_En10
+
+
+  always @(posedge clk or posedge reset)
+    begin : Interpolation_Control_1_process
+      if (reset == 1'b1) begin
+        countReg <= 11'sb00000000000;
+        muReg <= 11'sb00000000000;
+        underflowReg <= 1'b0;
+      end
+      else begin
+        if (enb) begin
+          countReg <= countReg_next;
+          underflowReg <= underflowReg_next;
+          muReg <= muReg_next;
+        end
+      end
+    end
+
+  always @(Delta, countReg, muReg, underflowReg) begin
+    x = 11'sb00000000000;
+    droppedBits = 11'sb00000000000;
+    signBitVector = 11'sb00000000000;
+    y = 11'sb00000000000;
+    add_temp = 15'sb000000000000000;
+    add_cast = 14'sb00000000000000;
+    add_cast_0 = 15'sb000000000000000;
+    cast = 14'sb00000000000000;
+    muReg_next = muReg;
+    // Implementation of modulo-1 counter for interpolation control listed in
+    // Figure 8.4.19 of "Digital Communications - A Discrete-Time Approach"
+    // by Michael Rice. See design details in Chapter 8.4.3 of the same book.
+    // 
+    // Input:
+    //   Delta - Loop filter output. If loop is in lock, delta would be small
+    // Output:
+    //   Underflow - Indicator of counter underflow. This is the strobe signal
+    //               for downstream processing
+    //   mu - Difference between actual sampling instant and the optimal instant,
+    //        between zero and one
+    // countReg - Counter value delayed by 1 sample
+    // muReg - The estimated timing error normalized by half QPSK symbols
+    and_temp = countReg & 11'sb01111111111;
+    sub_cast = {and_temp[10], and_temp};
+    sub_cast_0 = {Delta[10], Delta};
+    sub_temp = sub_cast - sub_cast_0;
+    sub_cast_1 = {sub_temp[11], sub_temp};
+    counter = sub_cast_1 - 13'sb0000100000000;
+    // decrementing counter
+    // if countReg is a nonnegative number,
+    // then mod(countReg,1) equals the fractional part of countReg
+    if (counter < 13'sb0000000000000) begin
+      underflowReg_next = 1'b1;
+      x = countReg & 11'sb01111111111;
+      droppedBits = x >>> 16'd8;
+      signBitVector = x >>> 16'd10;
+      if (droppedBits != signBitVector) begin
+        y =  ~ (signBitVector ^ 11'sb10000000000);
+      end
+      else begin
+        y = x <<< 16'd2;
+      end
+      muReg_next = y;
+      add_cast = {counter[12], counter};
+      add_cast_0 = {add_cast[13], add_cast};
+      add_temp = add_cast_0 + 15'sb000010000000000;
+      if ((add_temp[14] == 1'b0) && (add_temp[13] != 1'b0)) begin
+        cast = 14'sb01111111111111;
+      end
+      else if ((add_temp[14] == 1'b1) && (add_temp[13] != 1'b1)) begin
+        cast = 14'sb10000000000000;
+      end
+      else begin
+        cast = add_temp[13:0];
+      end
+      if ((cast[13] == 1'b0) && (cast[12:10] != 3'b000)) begin
+        countReg_next = 11'sb01111111111;
+      end
+      else if ((cast[13] == 1'b1) && (cast[12:10] != 3'b111)) begin
+        countReg_next = 11'sb10000000000;
+      end
+      else begin
+        countReg_next = cast[10:0];
+      end
+      // create underflow to counter
+    end
+    else begin
+      underflowReg_next = 1'b0;
+      if ((counter[12] == 1'b0) && (counter[11:10] != 2'b00)) begin
+        countReg_next = 11'sb01111111111;
+      end
+      else if ((counter[12] == 1'b1) && (counter[11:10] != 2'b11)) begin
+        countReg_next = 11'sb10000000000;
+      end
+      else begin
+        countReg_next = counter[10:0];
+      end
+    end
+    mu_1 = muReg;
+    Underflow_1 = underflowReg;
+  end
+
+  assign mu = mu_1;
+
+  assign Underflow = Underflow_1;
+
+endmodule  // Interpolation_Control
+
+
+
+/////////////////////////////////////////
+
+`timescale 1 ns / 1 ns
+module Interpolation_Filter
+          (clk,
+           reset,
+           enb,
+           In_re,
+           In_im,
+           mu,
+           interpolant_re,
+           interpolant_im);
+  input   clk;
+  input   reset;
+  input   enb;
+  input   signed [15:0] In_re;  // sfix16_En14
+  input   signed [15:0] In_im;  // sfix16_En14
+  input   signed [10:0] mu;  // sfix11_En10
+  output  signed [20:0] interpolant_re;  // sfix21_En14
+  output  signed [20:0] interpolant_im;  // sfix21_En14
+  reg signed [15:0] Delay1_out1_re;  // sfix16_En14
+  reg signed [15:0] Delay1_out1_im;  // sfix16_En14
+  reg signed [15:0] Delay36_out1_re;  // sfix16_En14
+  reg signed [15:0] Delay36_out1_im;  // sfix16_En14
+  reg signed [15:0] Delay33_out1_re;  // sfix16_En14
+  reg signed [15:0] Delay33_out1_im;  // sfix16_En14
+  reg signed [15:0] Delay10_out1_re;  // sfix16_En14
+  reg signed [15:0] Delay10_out1_im;  // sfix16_En14
+  reg signed [15:0] Delay23_out1_re;  // sfix16_En14
+  reg signed [15:0] Delay23_out1_im;  // sfix16_En14
+  reg signed [15:0] Delay28_out1_re;  // sfix16_En14
+  reg signed [15:0] Delay28_out1_im;  // sfix16_En14
+  reg signed [15:0] Delay18_reg_re [0:1];  // sfix16_En14 [2]
+  reg signed [15:0] Delay18_reg_im [0:1];  // sfix16_En14 [2]
+  wire signed [15:0] Delay18_reg_next_re [0:1];  // sfix16_En14 [2]
+  wire signed [15:0] Delay18_reg_next_im [0:1];  // sfix16_En14 [2]
+  wire signed [15:0] Delay18_out1_re;  // sfix16_En14
+  wire signed [15:0] Delay18_out1_im;  // sfix16_En14
+  reg signed [15:0] Delay12_reg_re [0:1];  // sfix16_En14 [2]
+  reg signed [15:0] Delay12_reg_im [0:1];  // sfix16_En14 [2]
+  wire signed [15:0] Delay12_reg_next_re [0:1];  // sfix16_En14 [2]
+  wire signed [15:0] Delay12_reg_next_im [0:1];  // sfix16_En14 [2]
+  wire signed [15:0] Delay12_out1_re;  // sfix16_En14
+  wire signed [15:0] Delay12_out1_im;  // sfix16_En14
+  reg signed [15:0] Delay8_reg_re [0:1];  // sfix16_En14 [2]
+  reg signed [15:0] Delay8_reg_im [0:1];  // sfix16_En14 [2]
+  wire signed [15:0] Delay8_reg_next_re [0:1];  // sfix16_En14 [2]
+  wire signed [15:0] Delay8_reg_next_im [0:1];  // sfix16_En14 [2]
+  wire signed [15:0] Delay8_out1_re;  // sfix16_En14
+  wire signed [15:0] Delay8_out1_im;  // sfix16_En14
+  reg signed [15:0] Delay5_reg_re [0:1];  // sfix16_En14 [2]
+  reg signed [15:0] Delay5_reg_im [0:1];  // sfix16_En14 [2]
+  wire signed [15:0] Delay5_reg_next_re [0:1];  // sfix16_En14 [2]
+  wire signed [15:0] Delay5_reg_next_im [0:1];  // sfix16_En14 [2]
+  wire signed [15:0] Delay5_out1_re;  // sfix16_En14
+  wire signed [15:0] Delay5_out1_im;  // sfix16_En14
+  wire signed [15:0] divide_by_2_out1_re;  // sfix16_En14
+  wire signed [15:0] divide_by_2_out1_im;  // sfix16_En14
+  reg signed [15:0] Delay35_out1_re;  // sfix16_En14
+  reg signed [15:0] Delay35_out1_im;  // sfix16_En14
+  wire signed [16:0] Sum9_sub_cast;  // sfix17_En14
+  wire signed [16:0] Sum9_sub_cast_1;  // sfix17_En14
+  wire signed [16:0] Sum9_sub_cast_2;  // sfix17_En14
+  wire signed [16:0] Sum9_sub_cast_3;  // sfix17_En14
+  wire signed [16:0] Sum9_out1_re;  // sfix17_En14
+  wire signed [16:0] Sum9_out1_im;  // sfix17_En14
+  reg signed [16:0] Delay32_out1_re;  // sfix17_En14
+  reg signed [16:0] Delay32_out1_im;  // sfix17_En14
+  reg signed [15:0] Delay2_out1_re;  // sfix16_En14
+  reg signed [15:0] Delay2_out1_im;  // sfix16_En14
+  reg signed [15:0] Delay31_out1_re;  // sfix16_En14
+  reg signed [15:0] Delay31_out1_im;  // sfix16_En14
+  wire signed [17:0] Sum10_add_cast;  // sfix18_En14
+  wire signed [17:0] Sum10_add_cast_1;  // sfix18_En14
+  wire signed [17:0] Sum10_add_cast_2;  // sfix18_En14
+  wire signed [17:0] Sum10_add_cast_3;  // sfix18_En14
+  wire signed [17:0] Sum10_out1_re;  // sfix18_En14
+  wire signed [17:0] Sum10_out1_im;  // sfix18_En14
+  reg signed [17:0] Delay22_out1_re;  // sfix18_En14
+  reg signed [17:0] Delay22_out1_im;  // sfix18_En14
+  reg signed [15:0] Delay3_out1_re;  // sfix16_En14
+  reg signed [15:0] Delay3_out1_im;  // sfix16_En14
+  reg signed [15:0] Delay21_out1_re;  // sfix16_En14
+  reg signed [15:0] Delay21_out1_im;  // sfix16_En14
+  wire signed [18:0] Sum4_sub_cast;  // sfix19_En14
+  wire signed [18:0] Sum4_sub_cast_1;  // sfix19_En14
+  wire signed [18:0] Sum4_sub_cast_2;  // sfix19_En14
+  wire signed [18:0] Sum4_sub_cast_3;  // sfix19_En14
+  wire signed [18:0] Sum4_out1_re;  // sfix19_En14
+  wire signed [18:0] Sum4_out1_im;  // sfix19_En14
+  reg signed [18:0] Delay27_out1_re;  // sfix19_En14
+  reg signed [18:0] Delay27_out1_im;  // sfix19_En14
+  reg signed [18:0] Delay17_reg_re [0:1];  // sfix19_En14 [2]
+  reg signed [18:0] Delay17_reg_im [0:1];  // sfix19_En14 [2]
+  wire signed [18:0] Delay17_reg_next_re [0:1];  // sfix19_En14 [2]
+  wire signed [18:0] Delay17_reg_next_im [0:1];  // sfix19_En14 [2]
+  wire signed [18:0] Delay17_out1_re;  // sfix19_En14
+  wire signed [18:0] Delay17_out1_im;  // sfix19_En14
+  reg signed [15:0] Delay4_out1_re;  // sfix16_En14
+  reg signed [15:0] Delay4_out1_im;  // sfix16_En14
+  reg signed [15:0] Delay26_out1_re;  // sfix16_En14
+  reg signed [15:0] Delay26_out1_im;  // sfix16_En14
+  reg signed [15:0] Delay16_reg_re [0:1];  // sfix16_En14 [2]
+  reg signed [15:0] Delay16_reg_im [0:1];  // sfix16_En14 [2]
+  wire signed [15:0] Delay16_reg_next_re [0:1];  // sfix16_En14 [2]
+  wire signed [15:0] Delay16_reg_next_im [0:1];  // sfix16_En14 [2]
+  wire signed [15:0] Delay16_out1_re;  // sfix16_En14
+  wire signed [15:0] Delay16_out1_im;  // sfix16_En14
+  wire signed [19:0] Sum7_sub_cast;  // sfix20_En14
+  wire signed [19:0] Sum7_sub_cast_1;  // sfix20_En14
+  wire signed [19:0] Sum7_sub_temp;  // sfix20_En14
+  wire signed [19:0] Sum7_sub_cast_2;  // sfix20_En14
+  wire signed [19:0] Sum7_sub_cast_3;  // sfix20_En14
+  wire signed [19:0] Sum7_sub_temp_1;  // sfix20_En14
+  wire signed [15:0] Sum7_out1_re;  // sfix16_En10
+  wire signed [15:0] Sum7_out1_im;  // sfix16_En10
+  reg signed [15:0] Delay11_reg_re [0:1];  // sfix16_En10 [2]
+  reg signed [15:0] Delay11_reg_im [0:1];  // sfix16_En10 [2]
+  wire signed [15:0] Delay11_reg_next_re [0:1];  // sfix16_En10 [2]
+  wire signed [15:0] Delay11_reg_next_im [0:1];  // sfix16_En10 [2]
+  wire signed [15:0] Delay11_out1_re;  // sfix16_En10
+  wire signed [15:0] Delay11_out1_im;  // sfix16_En10
+  reg signed [15:0] Delay30_out1_re;  // sfix16_En14
+  reg signed [15:0] Delay30_out1_im;  // sfix16_En14
+  wire signed [16:0] Sum1_sub_cast;  // sfix17_En14
+  wire signed [16:0] Sum1_sub_cast_1;  // sfix17_En14
+  wire signed [16:0] Sum1_sub_cast_2;  // sfix17_En14
+  wire signed [16:0] Sum1_sub_cast_3;  // sfix17_En14
+  wire signed [16:0] Sum1_out1_re;  // sfix17_En14
+  wire signed [16:0] Sum1_out1_im;  // sfix17_En14
+  reg signed [16:0] Delay20_out1_re;  // sfix17_En14
+  reg signed [16:0] Delay20_out1_im;  // sfix17_En14
+  wire signed [17:0] Sum5_sub_cast;  // sfix18_En14
+  wire signed [17:0] Sum5_sub_cast_1;  // sfix18_En14
+  wire signed [17:0] Sum5_sub_cast_2;  // sfix18_En14
+  wire signed [17:0] Sum5_sub_cast_3;  // sfix18_En14
+  wire signed [17:0] Sum5_out1_re;  // sfix18_En14
+  wire signed [17:0] Sum5_out1_im;  // sfix18_En14
+  reg signed [17:0] Delay25_out1_re;  // sfix18_En14
+  reg signed [17:0] Delay25_out1_im;  // sfix18_En14
+  wire signed [18:0] Sum6_add_cast;  // sfix19_En14
+  wire signed [18:0] Sum6_add_cast_1;  // sfix19_En14
+  wire signed [18:0] Sum6_add_temp;  // sfix19_En14
+  wire signed [18:0] Sum6_add_cast_2;  // sfix19_En14
+  wire signed [18:0] Sum6_add_cast_3;  // sfix19_En14
+  wire signed [18:0] Sum6_add_temp_1;  // sfix19_En14
+  wire signed [15:0] Sum6_out1_re;  // sfix16_En11
+  wire signed [15:0] Sum6_out1_im;  // sfix16_En11
+  reg signed [15:0] Delay15_reg_re [0:1];  // sfix16_En11 [2]
+  reg signed [15:0] Delay15_reg_im [0:1];  // sfix16_En11 [2]
+  wire signed [15:0] Delay15_reg_next_re [0:1];  // sfix16_En11 [2]
+  wire signed [15:0] Delay15_reg_next_im [0:1];  // sfix16_En11 [2]
+  wire signed [15:0] Delay15_out1_re;  // sfix16_En11
+  wire signed [15:0] Delay15_out1_im;  // sfix16_En11
+  reg signed [10:0] Delay34_out1;  // sfix11_En10
+  reg signed [10:0] Delay29_out1;  // sfix11_En10
+  reg signed [10:0] Delay19_out1;  // sfix11_En10
+  reg signed [10:0] Delay24_out1;  // sfix11_En10
+  reg signed [10:0] Delay14_reg [0:1];  // sfix11 [2]
+  wire signed [10:0] Delay14_reg_next [0:1];  // sfix11_En10 [2]
+  wire signed [10:0] Delay14_out1;  // sfix11_En10
+  wire signed [26:0] Product1_mul_temp;  // sfix27_En21
+  wire signed [26:0] Product1_mul_temp_1;  // sfix27_En21
+  wire signed [15:0] Product1_out1_re;  // sfix16_En10
+  wire signed [15:0] Product1_out1_im;  // sfix16_En10
+  reg signed [15:0] Delay9_reg_re [0:1];  // sfix16_En10 [2]
+  reg signed [15:0] Delay9_reg_im [0:1];  // sfix16_En10 [2]
+  wire signed [15:0] Delay9_reg_next_re [0:1];  // sfix16_En10 [2]
+  wire signed [15:0] Delay9_reg_next_im [0:1];  // sfix16_En10 [2]
+  wire signed [15:0] Delay9_out1_re;  // sfix16_En10
+  wire signed [15:0] Delay9_out1_im;  // sfix16_En10
+  wire signed [15:0] Sum3_out1_re;  // sfix16_En10
+  wire signed [15:0] Sum3_out1_im;  // sfix16_En10
+  reg signed [15:0] Delay6_reg_re [0:1];  // sfix16_En10 [2]
+  reg signed [15:0] Delay6_reg_im [0:1];  // sfix16_En10 [2]
+  wire signed [15:0] Delay6_reg_next_re [0:1];  // sfix16_En10 [2]
+  wire signed [15:0] Delay6_reg_next_im [0:1];  // sfix16_En10 [2]
+  wire signed [15:0] Delay6_out1_re;  // sfix16_En10
+  wire signed [15:0] Delay6_out1_im;  // sfix16_En10
+  reg signed [10:0] Delay13_reg [0:1];  // sfix11 [2]
+  wire signed [10:0] Delay13_reg_next [0:1];  // sfix11_En10 [2]
+  wire signed [10:0] Delay13_out1;  // sfix11_En10
+  reg signed [10:0] Delay7_reg [0:1];  // sfix11 [2]
+  wire signed [10:0] Delay7_reg_next [0:1];  // sfix11_En10 [2]
+  wire signed [10:0] Delay7_out1;  // sfix11_En10
+  wire signed [26:0] Product2_mul_temp;  // sfix27_En20
+  wire signed [26:0] Product2_mul_temp_1;  // sfix27_En20
+  wire signed [15:0] Product2_out1_re;  // sfix16_En10
+  wire signed [15:0] Product2_out1_im;  // sfix16_En10
+  reg signed [15:0] Delay_reg_re [0:1];  // sfix16_En10 [2]
+  reg signed [15:0] Delay_reg_im [0:1];  // sfix16_En10 [2]
+  wire signed [15:0] Delay_reg_next_re [0:1];  // sfix16_En10 [2]
+  wire signed [15:0] Delay_reg_next_im [0:1];  // sfix16_En10 [2]
+  wire signed [15:0] Delay_out1_re;  // sfix16_En10
+  wire signed [15:0] Delay_out1_im;  // sfix16_En10
+  wire signed [20:0] Sum2_add_cast;  // sfix21_En14
+  wire signed [20:0] Sum2_add_cast_1;  // sfix21_En14
+  wire signed [20:0] Sum2_add_cast_2;  // sfix21_En14
+  wire signed [20:0] Sum2_add_cast_3;  // sfix21_En14
+  wire signed [20:0] Sum2_out1_re;  // sfix21_En14
+  wire signed [20:0] Sum2_out1_im;  // sfix21_En14
+  reg signed [31:0] Delay18_t_0_0;  // int32
+  reg signed [31:0] Delay18_t_1;  // int32
+  reg signed [31:0] Delay12_t_0_0;  // int32
+  reg signed [31:0] Delay12_t_1;  // int32
+  reg signed [31:0] Delay8_t_0_0;  // int32
+  reg signed [31:0] Delay8_t_1;  // int32
+  reg signed [31:0] Delay5_t_0_0;  // int32
+  reg signed [31:0] Delay5_t_1;  // int32
+  reg signed [31:0] Delay17_t_0_0;  // int32
+  reg signed [31:0] Delay17_t_1;  // int32
+  reg signed [31:0] Delay16_t_0_0;  // int32
+  reg signed [31:0] Delay16_t_1;  // int32
+  reg signed [31:0] Delay11_t_0_0;  // int32
+  reg signed [31:0] Delay11_t_1;  // int32
+  reg signed [31:0] Delay15_t_0_0;  // int32
+  reg signed [31:0] Delay15_t_1;  // int32
+  reg signed [31:0] Delay14_t_0_0;  // int32
+  reg signed [31:0] Delay14_t_1;  // int32
+  reg signed [31:0] Delay9_t_0_0;  // int32
+  reg signed [31:0] Delay9_t_1;  // int32
+  reg signed [31:0] Delay6_t_0_0;  // int32
+  reg signed [31:0] Delay6_t_1;  // int32
+  reg signed [31:0] Delay13_t_0_0;  // int32
+  reg signed [31:0] Delay13_t_1;  // int32
+  reg signed [31:0] Delay7_t_0_0;  // int32
+  reg signed [31:0] Delay7_t_1;  // int32
+  reg signed [31:0] Delay_t_0_0;  // int32
+  reg signed [31:0] Delay_t_1;  // int32
+  initial begin
+    for(Delay15_t_1 = 32'sd0; Delay15_t_1 <= 32'sd1; Delay15_t_1 = Delay15_t_1 + 32'sd1) begin
+      Delay15_reg_re[Delay15_t_1] = 16'sb0000000000000000;
+      Delay15_reg_im[Delay15_t_1] = 16'sb0000000000000000;
+    end
+    for(Delay14_t_1 = 32'sd0; Delay14_t_1 <= 32'sd1; Delay14_t_1 = Delay14_t_1 + 32'sd1) begin
+      Delay14_reg[Delay14_t_1] = 11'sb00000000000;
+    end
+    for(Delay9_t_1 = 32'sd0; Delay9_t_1 <= 32'sd1; Delay9_t_1 = Delay9_t_1 + 32'sd1) begin
+      Delay9_reg_re[Delay9_t_1] = 16'sb0000000000000000;
+      Delay9_reg_im[Delay9_t_1] = 16'sb0000000000000000;
+    end
+    for(Delay6_t_1 = 32'sd0; Delay6_t_1 <= 32'sd1; Delay6_t_1 = Delay6_t_1 + 32'sd1) begin
+      Delay6_reg_re[Delay6_t_1] = 16'sb0000000000000000;
+      Delay6_reg_im[Delay6_t_1] = 16'sb0000000000000000;
+    end
+    for(Delay7_t_1 = 32'sd0; Delay7_t_1 <= 32'sd1; Delay7_t_1 = Delay7_t_1 + 32'sd1) begin
+      Delay7_reg[Delay7_t_1] = 11'sb00000000000;
+    end
+    for(Delay_t_1 = 32'sd0; Delay_t_1 <= 32'sd1; Delay_t_1 = Delay_t_1 + 32'sd1) begin
+      Delay_reg_re[Delay_t_1] = 16'sb0000000000000000;
+      Delay_reg_im[Delay_t_1] = 16'sb0000000000000000;
+    end
+  end
+  always @(posedge clk or posedge reset)
+    begin : Delay1_process
+      if (reset == 1'b1) begin
+        Delay1_out1_re <= 16'sb0000000000000000;
+        Delay1_out1_im <= 16'sb0000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay1_out1_re <= In_re;
+          Delay1_out1_im <= In_im;
+        end
+      end
+    end
+  always @(posedge clk or posedge reset)
+    begin : Delay36_process
+      if (reset == 1'b1) begin
+        Delay36_out1_re <= 16'sb0000000000000000;
+        Delay36_out1_im <= 16'sb0000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay36_out1_re <= Delay1_out1_re;
+          Delay36_out1_im <= Delay1_out1_im;
+        end
+      end
+    end
+  always @(posedge clk or posedge reset)
+    begin : Delay33_process
+      if (reset == 1'b1) begin
+        Delay33_out1_re <= 16'sb0000000000000000;
+        Delay33_out1_im <= 16'sb0000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay33_out1_re <= Delay36_out1_re;
+          Delay33_out1_im <= Delay36_out1_im;
+        end
+      end
+    end
+  always @(posedge clk or posedge reset)
+    begin : Delay10_process
+      if (reset == 1'b1) begin
+        Delay10_out1_re <= 16'sb0000000000000000;
+        Delay10_out1_im <= 16'sb0000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay10_out1_re <= Delay33_out1_re;
+          Delay10_out1_im <= Delay33_out1_im;
+        end
+      end
+    end
+  always @(posedge clk or posedge reset)
+    begin : Delay23_process
+      if (reset == 1'b1) begin
+        Delay23_out1_re <= 16'sb0000000000000000;
+        Delay23_out1_im <= 16'sb0000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay23_out1_re <= Delay10_out1_re;
+          Delay23_out1_im <= Delay10_out1_im;
+        end
+      end
+    end
+  always @(posedge clk or posedge reset)
+    begin : Delay28_process
+      if (reset == 1'b1) begin
+        Delay28_out1_re <= 16'sb0000000000000000;
+        Delay28_out1_im <= 16'sb0000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay28_out1_re <= Delay23_out1_re;
+          Delay28_out1_im <= Delay23_out1_im;
+        end
+      end
+    end
+  always @(posedge clk or posedge reset)
+    begin : Delay18_process
+      if (reset == 1'b1) begin
+        for(Delay18_t_1 = 32'sd0; Delay18_t_1 <= 32'sd1; Delay18_t_1 = Delay18_t_1 + 32'sd1) begin
+          Delay18_reg_re[Delay18_t_1] <= 16'sb0000000000000000;
+          Delay18_reg_im[Delay18_t_1] <= 16'sb0000000000000000;
+        end
+      end
+      else begin
+        if (enb) begin
+          for(Delay18_t_0_0 = 32'sd0; Delay18_t_0_0 <= 32'sd1; Delay18_t_0_0 = Delay18_t_0_0 + 32'sd1) begin
+            Delay18_reg_re[Delay18_t_0_0] <= Delay18_reg_next_re[Delay18_t_0_0];
+            Delay18_reg_im[Delay18_t_0_0] <= Delay18_reg_next_im[Delay18_t_0_0];
+          end
+        end
+      end
+    end
+  assign Delay18_out1_re = Delay18_reg_re[1];
+  assign Delay18_out1_im = Delay18_reg_im[1];
+  assign Delay18_reg_next_re[0] = Delay28_out1_re;
+  assign Delay18_reg_next_im[0] = Delay28_out1_im;
+  assign Delay18_reg_next_re[1] = Delay18_reg_re[0];
+  assign Delay18_reg_next_im[1] = Delay18_reg_im[0];
+  always @(posedge clk or posedge reset)
+    begin : Delay12_process
+      if (reset == 1'b1) begin
+        for(Delay12_t_1 = 32'sd0; Delay12_t_1 <= 32'sd1; Delay12_t_1 = Delay12_t_1 + 32'sd1) begin
+          Delay12_reg_re[Delay12_t_1] <= 16'sb0000000000000000;
+          Delay12_reg_im[Delay12_t_1] <= 16'sb0000000000000000;
+        end
+      end
+      else begin
+        if (enb) begin
+          for(Delay12_t_0_0 = 32'sd0; Delay12_t_0_0 <= 32'sd1; Delay12_t_0_0 = Delay12_t_0_0 + 32'sd1) begin
+            Delay12_reg_re[Delay12_t_0_0] <= Delay12_reg_next_re[Delay12_t_0_0];
+            Delay12_reg_im[Delay12_t_0_0] <= Delay12_reg_next_im[Delay12_t_0_0];
+          end
+        end
+      end
+    end
+  assign Delay12_out1_re = Delay12_reg_re[1];
+  assign Delay12_out1_im = Delay12_reg_im[1];
+  assign Delay12_reg_next_re[0] = Delay18_out1_re;
+  assign Delay12_reg_next_im[0] = Delay18_out1_im;
+  assign Delay12_reg_next_re[1] = Delay12_reg_re[0];
+  assign Delay12_reg_next_im[1] = Delay12_reg_im[0];
+  always @(posedge clk or posedge reset)
+    begin : Delay8_process
+      if (reset == 1'b1) begin
+        for(Delay8_t_1 = 32'sd0; Delay8_t_1 <= 32'sd1; Delay8_t_1 = Delay8_t_1 + 32'sd1) begin
+          Delay8_reg_re[Delay8_t_1] <= 16'sb0000000000000000;
+          Delay8_reg_im[Delay8_t_1] <= 16'sb0000000000000000;
+        end
+      end
+      else begin
+        if (enb) begin
+          for(Delay8_t_0_0 = 32'sd0; Delay8_t_0_0 <= 32'sd1; Delay8_t_0_0 = Delay8_t_0_0 + 32'sd1) begin
+            Delay8_reg_re[Delay8_t_0_0] <= Delay8_reg_next_re[Delay8_t_0_0];
+            Delay8_reg_im[Delay8_t_0_0] <= Delay8_reg_next_im[Delay8_t_0_0];
+          end
+        end
+      end
+    end
+  assign Delay8_out1_re = Delay8_reg_re[1];
+  assign Delay8_out1_im = Delay8_reg_im[1];
+  assign Delay8_reg_next_re[0] = Delay12_out1_re;
+  assign Delay8_reg_next_im[0] = Delay12_out1_im;
+  assign Delay8_reg_next_re[1] = Delay8_reg_re[0];
+  assign Delay8_reg_next_im[1] = Delay8_reg_im[0];
+  always @(posedge clk or posedge reset)
+    begin : Delay5_process
+      if (reset == 1'b1) begin
+        for(Delay5_t_1 = 32'sd0; Delay5_t_1 <= 32'sd1; Delay5_t_1 = Delay5_t_1 + 32'sd1) begin
+          Delay5_reg_re[Delay5_t_1] <= 16'sb0000000000000000;
+          Delay5_reg_im[Delay5_t_1] <= 16'sb0000000000000000;
+        end
+      end
+      else begin
+        if (enb) begin
+          for(Delay5_t_0_0 = 32'sd0; Delay5_t_0_0 <= 32'sd1; Delay5_t_0_0 = Delay5_t_0_0 + 32'sd1) begin
+            Delay5_reg_re[Delay5_t_0_0] <= Delay5_reg_next_re[Delay5_t_0_0];
+            Delay5_reg_im[Delay5_t_0_0] <= Delay5_reg_next_im[Delay5_t_0_0];
+          end
+        end
+      end
+    end
+  assign Delay5_out1_re = Delay5_reg_re[1];
+  assign Delay5_out1_im = Delay5_reg_im[1];
+  assign Delay5_reg_next_re[0] = Delay8_out1_re;
+  assign Delay5_reg_next_im[0] = Delay8_out1_im;
+  assign Delay5_reg_next_re[1] = Delay5_reg_re[0];
+  assign Delay5_reg_next_im[1] = Delay5_reg_im[0];
+  assign divide_by_2_out1_re = In_re >>> 8'd1;
+  assign divide_by_2_out1_im = In_im >>> 8'd1;
+  always @(posedge clk or posedge reset)
+    begin : Delay35_process
+      if (reset == 1'b1) begin
+        Delay35_out1_re <= 16'sb0000000000000000;
+        Delay35_out1_im <= 16'sb0000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay35_out1_re <= divide_by_2_out1_re;
+          Delay35_out1_im <= divide_by_2_out1_im;
+        end
+      end
+    end
+  assign Sum9_sub_cast = {Delay36_out1_re[15], Delay36_out1_re};
+  assign Sum9_sub_cast_1 = {Delay35_out1_re[15], Delay35_out1_re};
+  assign Sum9_out1_re = Sum9_sub_cast - Sum9_sub_cast_1;
+  assign Sum9_sub_cast_2 = {Delay36_out1_im[15], Delay36_out1_im};
+  assign Sum9_sub_cast_3 = {Delay35_out1_im[15], Delay35_out1_im};
+  assign Sum9_out1_im = Sum9_sub_cast_2 - Sum9_sub_cast_3;
+  always @(posedge clk or posedge reset)
+    begin : Delay32_process
+      if (reset == 1'b1) begin
+        Delay32_out1_re <= 17'sb00000000000000000;
+        Delay32_out1_im <= 17'sb00000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay32_out1_re <= Sum9_out1_re;
+          Delay32_out1_im <= Sum9_out1_im;
+        end
+      end
+    end
+  always @(posedge clk or posedge reset)
+    begin : Delay2_process
+      if (reset == 1'b1) begin
+        Delay2_out1_re <= 16'sb0000000000000000;
+        Delay2_out1_im <= 16'sb0000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay2_out1_re <= Delay35_out1_re;
+          Delay2_out1_im <= Delay35_out1_im;
+        end
+      end
+    end
+  always @(posedge clk or posedge reset)
+    begin : Delay31_process
+      if (reset == 1'b1) begin
+        Delay31_out1_re <= 16'sb0000000000000000;
+        Delay31_out1_im <= 16'sb0000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay31_out1_re <= Delay2_out1_re;
+          Delay31_out1_im <= Delay2_out1_im;
+        end
+      end
+    end
+  assign Sum10_add_cast = {Delay32_out1_re[16], Delay32_out1_re};
+  assign Sum10_add_cast_1 = {{2{Delay31_out1_re[15]}}, Delay31_out1_re};
+  assign Sum10_out1_re = Sum10_add_cast + Sum10_add_cast_1;
+  assign Sum10_add_cast_2 = {Delay32_out1_im[16], Delay32_out1_im};
+  assign Sum10_add_cast_3 = {{2{Delay31_out1_im[15]}}, Delay31_out1_im};
+  assign Sum10_out1_im = Sum10_add_cast_2 + Sum10_add_cast_3;
+  always @(posedge clk or posedge reset)
+    begin : Delay22_process
+      if (reset == 1'b1) begin
+        Delay22_out1_re <= 18'sb000000000000000000;
+        Delay22_out1_im <= 18'sb000000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay22_out1_re <= Sum10_out1_re;
+          Delay22_out1_im <= Sum10_out1_im;
+        end
+      end
+    end
+  always @(posedge clk or posedge reset)
+    begin : Delay3_process
+      if (reset == 1'b1) begin
+        Delay3_out1_re <= 16'sb0000000000000000;
+        Delay3_out1_im <= 16'sb0000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay3_out1_re <= Delay31_out1_re;
+          Delay3_out1_im <= Delay31_out1_im;
+        end
+      end
+    end
+  always @(posedge clk or posedge reset)
+    begin : Delay21_process
+      if (reset == 1'b1) begin
+        Delay21_out1_re <= 16'sb0000000000000000;
+        Delay21_out1_im <= 16'sb0000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay21_out1_re <= Delay3_out1_re;
+          Delay21_out1_im <= Delay3_out1_im;
+        end
+      end
+    end
+  assign Sum4_sub_cast = {Delay22_out1_re[17], Delay22_out1_re};
+  assign Sum4_sub_cast_1 = {{3{Delay21_out1_re[15]}}, Delay21_out1_re};
+  assign Sum4_out1_re = Sum4_sub_cast - Sum4_sub_cast_1;
+  assign Sum4_sub_cast_2 = {Delay22_out1_im[17], Delay22_out1_im};
+  assign Sum4_sub_cast_3 = {{3{Delay21_out1_im[15]}}, Delay21_out1_im};
+  assign Sum4_out1_im = Sum4_sub_cast_2 - Sum4_sub_cast_3;
+  always @(posedge clk or posedge reset)
+    begin : Delay27_process
+      if (reset == 1'b1) begin
+        Delay27_out1_re <= 19'sb0000000000000000000;
+        Delay27_out1_im <= 19'sb0000000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay27_out1_re <= Sum4_out1_re;
+          Delay27_out1_im <= Sum4_out1_im;
+        end
+      end
+    end
+  always @(posedge clk or posedge reset)
+    begin : Delay17_process
+      if (reset == 1'b1) begin
+        for(Delay17_t_1 = 32'sd0; Delay17_t_1 <= 32'sd1; Delay17_t_1 = Delay17_t_1 + 32'sd1) begin
+          Delay17_reg_re[Delay17_t_1] <= 19'sb0000000000000000000;
+          Delay17_reg_im[Delay17_t_1] <= 19'sb0000000000000000000;
+        end
+      end
+      else begin
+        if (enb) begin
+          for(Delay17_t_0_0 = 32'sd0; Delay17_t_0_0 <= 32'sd1; Delay17_t_0_0 = Delay17_t_0_0 + 32'sd1) begin
+            Delay17_reg_re[Delay17_t_0_0] <= Delay17_reg_next_re[Delay17_t_0_0];
+            Delay17_reg_im[Delay17_t_0_0] <= Delay17_reg_next_im[Delay17_t_0_0];
+          end
+        end
+      end
+    end
+  assign Delay17_out1_re = Delay17_reg_re[1];
+  assign Delay17_out1_im = Delay17_reg_im[1];
+  assign Delay17_reg_next_re[0] = Delay27_out1_re;
+  assign Delay17_reg_next_im[0] = Delay27_out1_im;
+  assign Delay17_reg_next_re[1] = Delay17_reg_re[0];
+  assign Delay17_reg_next_im[1] = Delay17_reg_im[0];
+  always @(posedge clk or posedge reset)
+    begin : Delay4_process
+      if (reset == 1'b1) begin
+        Delay4_out1_re <= 16'sb0000000000000000;
+        Delay4_out1_im <= 16'sb0000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay4_out1_re <= Delay21_out1_re;
+          Delay4_out1_im <= Delay21_out1_im;
+        end
+      end
+    end
+  always @(posedge clk or posedge reset)
+    begin : Delay26_process
+      if (reset == 1'b1) begin
+        Delay26_out1_re <= 16'sb0000000000000000;
+        Delay26_out1_im <= 16'sb0000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay26_out1_re <= Delay4_out1_re;
+          Delay26_out1_im <= Delay4_out1_im;
+        end
+      end
+    end
+  always @(posedge clk or posedge reset)
+    begin : Delay16_process
+      if (reset == 1'b1) begin
+        for(Delay16_t_1 = 32'sd0; Delay16_t_1 <= 32'sd1; Delay16_t_1 = Delay16_t_1 + 32'sd1) begin
+          Delay16_reg_re[Delay16_t_1] <= 16'sb0000000000000000;
+          Delay16_reg_im[Delay16_t_1] <= 16'sb0000000000000000;
+        end
+      end
+      else begin
+        if (enb) begin
+          for(Delay16_t_0_0 = 32'sd0; Delay16_t_0_0 <= 32'sd1; Delay16_t_0_0 = Delay16_t_0_0 + 32'sd1) begin
+            Delay16_reg_re[Delay16_t_0_0] <= Delay16_reg_next_re[Delay16_t_0_0];
+            Delay16_reg_im[Delay16_t_0_0] <= Delay16_reg_next_im[Delay16_t_0_0];
+          end
+        end
+      end
+    end
+  assign Delay16_out1_re = Delay16_reg_re[1];
+  assign Delay16_out1_im = Delay16_reg_im[1];
+  assign Delay16_reg_next_re[0] = Delay26_out1_re;
+  assign Delay16_reg_next_im[0] = Delay26_out1_im;
+  assign Delay16_reg_next_re[1] = Delay16_reg_re[0];
+  assign Delay16_reg_next_im[1] = Delay16_reg_im[0];
+  assign Sum7_sub_cast = {Delay17_out1_re[18], Delay17_out1_re};
+  assign Sum7_sub_cast_1 = {{4{Delay16_out1_re[15]}}, Delay16_out1_re};
+  assign Sum7_sub_temp = Sum7_sub_cast - Sum7_sub_cast_1;
+  assign Sum7_out1_re = Sum7_sub_temp[19:4];
+  assign Sum7_sub_cast_2 = {Delay17_out1_im[18], Delay17_out1_im};
+  assign Sum7_sub_cast_3 = {{4{Delay16_out1_im[15]}}, Delay16_out1_im};
+  assign Sum7_sub_temp_1 = Sum7_sub_cast_2 - Sum7_sub_cast_3;
+  assign Sum7_out1_im = Sum7_sub_temp_1[19:4];
+  always @(posedge clk or posedge reset)
+    begin : Delay11_process
+      if (reset == 1'b1) begin
+        for(Delay11_t_1 = 32'sd0; Delay11_t_1 <= 32'sd1; Delay11_t_1 = Delay11_t_1 + 32'sd1) begin
+          Delay11_reg_re[Delay11_t_1] <= 16'sb0000000000000000;
+          Delay11_reg_im[Delay11_t_1] <= 16'sb0000000000000000;
+        end
+      end
+      else begin
+        if (enb) begin
+          for(Delay11_t_0_0 = 32'sd0; Delay11_t_0_0 <= 32'sd1; Delay11_t_0_0 = Delay11_t_0_0 + 32'sd1) begin
+            Delay11_reg_re[Delay11_t_0_0] <= Delay11_reg_next_re[Delay11_t_0_0];
+            Delay11_reg_im[Delay11_t_0_0] <= Delay11_reg_next_im[Delay11_t_0_0];
+          end
+        end
+      end
+    end
+  assign Delay11_out1_re = Delay11_reg_re[1];
+  assign Delay11_out1_im = Delay11_reg_im[1];
+  assign Delay11_reg_next_re[0] = Sum7_out1_re;
+  assign Delay11_reg_next_im[0] = Sum7_out1_im;
+  assign Delay11_reg_next_re[1] = Delay11_reg_re[0];
+  assign Delay11_reg_next_im[1] = Delay11_reg_im[0];
+  always @(posedge clk or posedge reset)
+    begin : Delay30_process
+      if (reset == 1'b1) begin
+        Delay30_out1_re <= 16'sb0000000000000000;
+        Delay30_out1_im <= 16'sb0000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay30_out1_re <= Delay35_out1_re;
+          Delay30_out1_im <= Delay35_out1_im;
+        end
+      end
+    end
+  assign Sum1_sub_cast = {Delay30_out1_re[15], Delay30_out1_re};
+  assign Sum1_sub_cast_1 = {Delay31_out1_re[15], Delay31_out1_re};
+  assign Sum1_out1_re = Sum1_sub_cast - Sum1_sub_cast_1;
+  assign Sum1_sub_cast_2 = {Delay30_out1_im[15], Delay30_out1_im};
+  assign Sum1_sub_cast_3 = {Delay31_out1_im[15], Delay31_out1_im};
+  assign Sum1_out1_im = Sum1_sub_cast_2 - Sum1_sub_cast_3;
+  always @(posedge clk or posedge reset)
+    begin : Delay20_process
+      if (reset == 1'b1) begin
+        Delay20_out1_re <= 17'sb00000000000000000;
+        Delay20_out1_im <= 17'sb00000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay20_out1_re <= Sum1_out1_re;
+          Delay20_out1_im <= Sum1_out1_im;
+        end
+      end
+    end
+  assign Sum5_sub_cast = {Delay20_out1_re[16], Delay20_out1_re};
+  assign Sum5_sub_cast_1 = {{2{Delay21_out1_re[15]}}, Delay21_out1_re};
+  assign Sum5_out1_re = Sum5_sub_cast - Sum5_sub_cast_1;
+  assign Sum5_sub_cast_2 = {Delay20_out1_im[16], Delay20_out1_im};
+  assign Sum5_sub_cast_3 = {{2{Delay21_out1_im[15]}}, Delay21_out1_im};
+  assign Sum5_out1_im = Sum5_sub_cast_2 - Sum5_sub_cast_3;
+  always @(posedge clk or posedge reset)
+    begin : Delay25_process
+      if (reset == 1'b1) begin
+        Delay25_out1_re <= 18'sb000000000000000000;
+        Delay25_out1_im <= 18'sb000000000000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay25_out1_re <= Sum5_out1_re;
+          Delay25_out1_im <= Sum5_out1_im;
+        end
+      end
+    end
+  assign Sum6_add_cast = {{3{Delay26_out1_re[15]}}, Delay26_out1_re};
+  assign Sum6_add_cast_1 = {Delay25_out1_re[17], Delay25_out1_re};
+  assign Sum6_add_temp = Sum6_add_cast + Sum6_add_cast_1;
+  assign Sum6_out1_re = Sum6_add_temp[18:3];
+  assign Sum6_add_cast_2 = {{3{Delay26_out1_im[15]}}, Delay26_out1_im};
+  assign Sum6_add_cast_3 = {Delay25_out1_im[17], Delay25_out1_im};
+  assign Sum6_add_temp_1 = Sum6_add_cast_2 + Sum6_add_cast_3;
+  assign Sum6_out1_im = Sum6_add_temp_1[18:3];
+  always @(posedge clk)
+    begin : Delay15_process
+      if (enb) begin
+        for(Delay15_t_0_0 = 32'sd0; Delay15_t_0_0 <= 32'sd1; Delay15_t_0_0 = Delay15_t_0_0 + 32'sd1) begin
+          Delay15_reg_re[Delay15_t_0_0] <= Delay15_reg_next_re[Delay15_t_0_0];
+          Delay15_reg_im[Delay15_t_0_0] <= Delay15_reg_next_im[Delay15_t_0_0];
+        end
+      end
+    end
+  assign Delay15_out1_re = Delay15_reg_re[1];
+  assign Delay15_out1_im = Delay15_reg_im[1];
+  assign Delay15_reg_next_re[0] = Sum6_out1_re;
+  assign Delay15_reg_next_im[0] = Sum6_out1_im;
+  assign Delay15_reg_next_re[1] = Delay15_reg_re[0];
+  assign Delay15_reg_next_im[1] = Delay15_reg_im[0];
+  always @(posedge clk or posedge reset)
+    begin : Delay34_process
+      if (reset == 1'b1) begin
+        Delay34_out1 <= 11'sb00000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay34_out1 <= mu;
+        end
+      end
+    end
+  always @(posedge clk or posedge reset)
+    begin : Delay29_process
+      if (reset == 1'b1) begin
+        Delay29_out1 <= 11'sb00000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay29_out1 <= Delay34_out1;
+        end
+      end
+    end
+  always @(posedge clk or posedge reset)
+    begin : Delay19_process
+      if (reset == 1'b1) begin
+        Delay19_out1 <= 11'sb00000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay19_out1 <= Delay29_out1;
+        end
+      end
+    end
+  always @(posedge clk or posedge reset)
+    begin : Delay24_process
+      if (reset == 1'b1) begin
+        Delay24_out1 <= 11'sb00000000000;
+      end
+      else begin
+        if (enb) begin
+          Delay24_out1 <= Delay19_out1;
+        end
+      end
+    end
+  always @(posedge clk)
+    begin : Delay14_process
+      if (enb) begin
+        for(Delay14_t_0_0 = 32'sd0; Delay14_t_0_0 <= 32'sd1; Delay14_t_0_0 = Delay14_t_0_0 + 32'sd1) begin
+          Delay14_reg[Delay14_t_0_0] <= Delay14_reg_next[Delay14_t_0_0];
+        end
+      end
+    end
+  assign Delay14_out1 = Delay14_reg[1];
+  assign Delay14_reg_next[0] = Delay24_out1;
+  assign Delay14_reg_next[1] = Delay14_reg[0];
+  assign Product1_mul_temp = Delay15_out1_re * Delay14_out1;
+  assign Product1_out1_re = Product1_mul_temp[26:11] + $signed({1'b0, Product1_mul_temp[26] & (|Product1_mul_temp[10:0])});
+  assign Product1_mul_temp_1 = Delay15_out1_im * Delay14_out1;
+  assign Product1_out1_im = Product1_mul_temp_1[26:11] + $signed({1'b0, Product1_mul_temp_1[26] & (|Product1_mul_temp_1[10:0])});
+  always @(posedge clk)
+    begin : Delay9_process
+      if (enb) begin
+        for(Delay9_t_0_0 = 32'sd0; Delay9_t_0_0 <= 32'sd1; Delay9_t_0_0 = Delay9_t_0_0 + 32'sd1) begin
+          Delay9_reg_re[Delay9_t_0_0] <= Delay9_reg_next_re[Delay9_t_0_0];
+          Delay9_reg_im[Delay9_t_0_0] <= Delay9_reg_next_im[Delay9_t_0_0];
+        end
+      end
+    end
+  assign Delay9_out1_re = Delay9_reg_re[1];
+  assign Delay9_out1_im = Delay9_reg_im[1];
+  assign Delay9_reg_next_re[0] = Product1_out1_re;
+  assign Delay9_reg_next_im[0] = Product1_out1_im;
+  assign Delay9_reg_next_re[1] = Delay9_reg_re[0];
+  assign Delay9_reg_next_im[1] = Delay9_reg_im[0];
+  assign Sum3_out1_re = Delay11_out1_re + Delay9_out1_re;
+  assign Sum3_out1_im = Delay11_out1_im + Delay9_out1_im;
+  always @(posedge clk)
+    begin : Delay6_process
+      if (enb) begin
+        for(Delay6_t_0_0 = 32'sd0; Delay6_t_0_0 <= 32'sd1; Delay6_t_0_0 = Delay6_t_0_0 + 32'sd1) begin
+          Delay6_reg_re[Delay6_t_0_0] <= Delay6_reg_next_re[Delay6_t_0_0];
+          Delay6_reg_im[Delay6_t_0_0] <= Delay6_reg_next_im[Delay6_t_0_0];
+        end
+      end
+    end
+  assign Delay6_out1_re = Delay6_reg_re[1];
+  assign Delay6_out1_im = Delay6_reg_im[1];
+  assign Delay6_reg_next_re[0] = Sum3_out1_re;
+  assign Delay6_reg_next_im[0] = Sum3_out1_im;
+  assign Delay6_reg_next_re[1] = Delay6_reg_re[0];
+  assign Delay6_reg_next_im[1] = Delay6_reg_im[0];
+  always @(posedge clk or posedge reset)
+    begin : Delay13_process
+      if (reset == 1'b1) begin
+        for(Delay13_t_1 = 32'sd0; Delay13_t_1 <= 32'sd1; Delay13_t_1 = Delay13_t_1 + 32'sd1) begin
+          Delay13_reg[Delay13_t_1] <= 11'sb00000000000;
+        end
+      end
+      else begin
+        if (enb) begin
+          for(Delay13_t_0_0 = 32'sd0; Delay13_t_0_0 <= 32'sd1; Delay13_t_0_0 = Delay13_t_0_0 + 32'sd1) begin
+            Delay13_reg[Delay13_t_0_0] <= Delay13_reg_next[Delay13_t_0_0];
+          end
+        end
+      end
+    end
+  assign Delay13_out1 = Delay13_reg[1];
+  assign Delay13_reg_next[0] = Delay14_out1;
+  assign Delay13_reg_next[1] = Delay13_reg[0];
+  always @(posedge clk)
+    begin : Delay7_process
+      if (enb) begin
+        for(Delay7_t_0_0 = 32'sd0; Delay7_t_0_0 <= 32'sd1; Delay7_t_0_0 = Delay7_t_0_0 + 32'sd1) begin
+          Delay7_reg[Delay7_t_0_0] <= Delay7_reg_next[Delay7_t_0_0];
+        end
+      end
+    end
+  assign Delay7_out1 = Delay7_reg[1];
+  assign Delay7_reg_next[0] = Delay13_out1;
+  assign Delay7_reg_next[1] = Delay7_reg[0];
+  assign Product2_mul_temp = Delay6_out1_re * Delay7_out1;
+  assign Product2_out1_re = Product2_mul_temp[25:10] + $signed({1'b0, Product2_mul_temp[26] & (|Product2_mul_temp[9:0])});
+  assign Product2_mul_temp_1 = Delay6_out1_im * Delay7_out1;
+  assign Product2_out1_im = Product2_mul_temp_1[25:10] + $signed({1'b0, Product2_mul_temp_1[26] & (|Product2_mul_temp_1[9:0])});
+  always @(posedge clk)
+    begin : Delay_process
+      if (enb) begin
+        for(Delay_t_0_0 = 32'sd0; Delay_t_0_0 <= 32'sd1; Delay_t_0_0 = Delay_t_0_0 + 32'sd1) begin
+          Delay_reg_re[Delay_t_0_0] <= Delay_reg_next_re[Delay_t_0_0];
+          Delay_reg_im[Delay_t_0_0] <= Delay_reg_next_im[Delay_t_0_0];
+        end
+      end
+    end
+  assign Delay_out1_re = Delay_reg_re[1];
+  assign Delay_out1_im = Delay_reg_im[1];
+  assign Delay_reg_next_re[0] = Product2_out1_re;
+  assign Delay_reg_next_im[0] = Product2_out1_im;
+  assign Delay_reg_next_re[1] = Delay_reg_re[0];
+  assign Delay_reg_next_im[1] = Delay_reg_im[0];
+  assign Sum2_add_cast = {{5{Delay5_out1_re[15]}}, Delay5_out1_re};
+  assign Sum2_add_cast_1 = {Delay_out1_re[15], {Delay_out1_re, 4'b0000}};
+  assign Sum2_out1_re = Sum2_add_cast + Sum2_add_cast_1;
+  assign Sum2_add_cast_2 = {{5{Delay5_out1_im[15]}}, Delay5_out1_im};
+  assign Sum2_add_cast_3 = {Delay_out1_im[15], {Delay_out1_im, 4'b0000}};
+  assign Sum2_out1_im = Sum2_add_cast_2 + Sum2_add_cast_3;
+  assign interpolant_re = Sum2_out1_re;
+  assign interpolant_im = Sum2_out1_im;
+endmodule  // Interpolation_Filter
+
+
+
+/////////////////////////////////////////////////
+
+
+
+`timescale 1 ns / 1 ns
+
+module Rate_Handle
+          (clk,
+           reset,
+           enb,
+           dataIn_re,
+           dataIn_im,
+           strobe,
+           validIn,
+           dataOut_re,
+           dataOut_im,
+           validOut);
+
+
+  input   clk;
+  input   reset;
+  input   enb;
+  input   signed [15:0] dataIn_re;  // sfix16_En14
+  input   signed [15:0] dataIn_im;  // sfix16_En14
+  input   strobe;
+  input   validIn;
+  output  signed [15:0] dataOut_re;  // sfix16_En14
+  output  signed [15:0] dataOut_im;  // sfix16_En14
+  output  validOut;
+
+
+  wire [1:0] count_step;  // ufix2
+  wire [1:0] count_from;  // ufix2
+  reg [1:0] HDL_Counter_out1;  // ufix2
+  wire [1:0] count;  // ufix2
+  wire need_to_wrap;
+  wire [1:0] count_value;  // ufix2
+  wire [1:0] count_1;  // ufix2
+  wire Compare_To_Constant_out1;
+  wire Logical_Operator_out1;
+  wire Constant_out1;
+  wire signed [15:0] FIFO_out1_re;  // sfix16_En14
+  wire signed [15:0] FIFO_out1_im;  // sfix16_En14
+  wire FIFO_out3;
+
+
+  // Count limited, Unsigned Counter
+  //  initial value   = 0
+  //  step value      = 1
+  //  count to value  = 3
+  assign count_step = 2'b01;
+
+  assign count_from = 2'b00;
+
+  assign count = HDL_Counter_out1 + count_step;
+
+  assign need_to_wrap = HDL_Counter_out1 == 2'b11;
+
+  assign count_value = (need_to_wrap == 1'b0 ? count :
+              count_from);
+
+  assign count_1 = (validIn == 1'b0 ? HDL_Counter_out1 :
+              count_value);
+
+  always @(posedge clk or posedge reset)
+    begin : HDL_Counter_process
+      if (reset == 1'b1) begin
+        HDL_Counter_out1 <= 2'b00;
+      end
+      else begin
+        if (enb) begin
+          HDL_Counter_out1 <= count_1;
+        end
+      end
+    end
+
+  assign Compare_To_Constant_out1 = HDL_Counter_out1 == 2'b00;
+
+  assign Logical_Operator_out1 = validIn & Compare_To_Constant_out1;
+
+  assign Constant_out1 = 1'b0;
+
+  FIFO_block u_FIFO (.clk(clk),
+                     .reset(reset),
+                     .enb(enb),
+                     .in_re(dataIn_re),  // sfix16_En14
+                     .in_im(dataIn_im),  // sfix16_En14
+                     .push(strobe),
+                     .pop(Logical_Operator_out1),
+                     .reset_1(Constant_out1),
+                     .out_re(FIFO_out1_re),  // sfix16_En14
+                     .out_im(FIFO_out1_im),  // sfix16_En14
+                     .validPop(FIFO_out3)
+                     );
+
+  assign dataOut_re = FIFO_out1_re;
+
+  assign dataOut_im = FIFO_out1_im;
+
+  assign validOut = FIFO_out3;
+
+endmodule  // Rate_Handle
+
+
+
+//////////////////////////////////////////////////////////////
+
+
+
+
+`timescale 1 ns / 1 ns
+
+module FIFO_block
+          (clk,
+           reset,
+           enb,
+           in_re,
+           in_im,
+           push,
+           pop,
+           reset_1,
+           out_re,
+           out_im,
+           validPop);
+
+
+  input   clk;
+  input   reset;
+  input   enb;
+  input   signed [15:0] in_re;  // sfix16_En14
+  input   signed [15:0] in_im;  // sfix16_En14
+  input   push;
+  input   pop;
+  input   reset_1;
+  output  signed [15:0] out_re;  // sfix16_En14
+  output  signed [15:0] out_im;  // sfix16_En14
+  output  validPop;
+
+
+  reg  Delay1_out1;
+  wire Validate_Input_Push_Pop_out1;
+  wire Validate_Input_Push_Pop_out2;
+  wire [4:0] count_step;  // ufix5
+  wire [4:0] count_from;  // ufix5
+  wire [4:0] count_reset;  // ufix5
+  reg [4:0] Push_Counter_out1;  // ufix5
+  wire [4:0] count;  // ufix5
+  wire need_to_wrap;
+  wire [4:0] count_value;  // ufix5
+  wire [4:0] count_1;  // ufix5
+  wire [4:0] count_2;  // ufix5
+  wire [4:0] count_step_1;  // ufix5
+  wire [4:0] count_from_1;  // ufix5
+  wire [4:0] count_reset_1;  // ufix5
+  reg [4:0] Pop_Counter_out1;  // ufix5
+  wire [4:0] count_3;  // ufix5
+  wire need_to_wrap_1;
+  wire [4:0] count_value_1;  // ufix5
+  wire [4:0] count_4;  // ufix5
+  wire [4:0] count_5;  // ufix5
+  wire signed [15:0] Simple_Dual_Port_RAM_out1_re;  // sfix16_En14
+  wire signed [15:0] Simple_Dual_Port_RAM_out1_im;  // sfix16_En14
+
+
+  always @(posedge clk or posedge reset)
+    begin : Delay1_process
+      if (reset == 1'b1) begin
+        Delay1_out1 <= 1'b0;
+      end
+      else begin
+        if (enb) begin
+          Delay1_out1 <= reset_1;
+        end
+      end
+    end
+
+  Validate_Input_Push_Pop_block u_Validate_Input_Push_Pop (.clk(clk),
+                                                           .reset(reset),
+                                                           .enb(enb),
+                                                           .rst(reset_1),
+                                                           .push(push),
+                                                           .pop(pop),
+                                                           .valid_push(Validate_Input_Push_Pop_out1),
+                                                           .valid_pop(Validate_Input_Push_Pop_out2)
+                                                           );
+
+  // Count limited, Unsigned Counter
+  //  initial value   = 0
+  //  step value      = 1
+  //  count to value  = 31
+  assign count_step = 5'b00001;
+
+  assign count_from = 5'b00000;
+
+  assign count_reset = 5'b00000;
+
+  assign count = Push_Counter_out1 + count_step;
+
+  assign need_to_wrap = Push_Counter_out1 == 5'b11111;
+
+  assign count_value = (need_to_wrap == 1'b0 ? count :
+              count_from);
+
+  assign count_1 = (Validate_Input_Push_Pop_out1 == 1'b0 ? Push_Counter_out1 :
+              count_value);
+
+  assign count_2 = (Delay1_out1 == 1'b0 ? count_1 :
+              count_reset);
+
+  always @(posedge clk or posedge reset)
+    begin : Push_Counter_process
+      if (reset == 1'b1) begin
+        Push_Counter_out1 <= 5'b00000;
+      end
+      else begin
+        if (enb) begin
+          Push_Counter_out1 <= count_2;
+        end
+      end
+    end
+
+  // Count limited, Unsigned Counter
+  //  initial value   = 0
+  //  step value      = 1
+  //  count to value  = 31
+  assign count_step_1 = 5'b00001;
+
+  assign count_from_1 = 5'b00000;
+
+  assign count_reset_1 = 5'b00000;
+
+  assign count_3 = Pop_Counter_out1 + count_step_1;
+
+  assign need_to_wrap_1 = Pop_Counter_out1 == 5'b11111;
+
+  assign count_value_1 = (need_to_wrap_1 == 1'b0 ? count_3 :
+              count_from_1);
+
+  assign count_4 = (Validate_Input_Push_Pop_out2 == 1'b0 ? Pop_Counter_out1 :
+              count_value_1);
+
+  assign count_5 = (Delay1_out1 == 1'b0 ? count_4 :
+              count_reset_1);
+
+  always @(posedge clk or posedge reset)
+    begin : Pop_Counter_process
+      if (reset == 1'b1) begin
+        Pop_Counter_out1 <= 5'b00000;
+      end
+      else begin
+        if (enb) begin
+          Pop_Counter_out1 <= count_5;
+        end
+      end
+    end
+
+  SimpleDualPortRAM_generic #(.AddrWidth(5),
+                              .DataWidth(16)
+                              )
+                            u_Simple_Dual_Port_RAM (.clk(clk),
+                                                    .enb(enb),
+                                                    .wr_din_re(in_re),
+                                                    .wr_din_im(in_im),
+                                                    .wr_addr(Push_Counter_out1),
+                                                    .wr_en(Validate_Input_Push_Pop_out1),
+                                                    .rd_addr(Pop_Counter_out1),
+                                                    .dout_re(Simple_Dual_Port_RAM_out1_re),
+                                                    .dout_im(Simple_Dual_Port_RAM_out1_im)
+                                                    );
+
+  assign out_re = Simple_Dual_Port_RAM_out1_re;
+
+  assign out_im = Simple_Dual_Port_RAM_out1_im;
+
+  assign validPop = Validate_Input_Push_Pop_out2;
+
+endmodule  // FIFO_block
+
+
+
+////////////////////////////////////
+
+
+
+
+`timescale 1 ns / 1 ns
+
+module Validate_Input_Push_Pop_block
+          (clk,
+           reset,
+           enb,
+           rst,
+           push,
+           pop,
+           valid_push,
+           valid_pop);
+
+
+  input   clk;
+  input   reset;
+  input   enb;
+  input   rst;
+  input   push;
+  input   pop;
+  output  valid_push;
+  output  valid_pop;
+
+
+  wire Constant_out1;
+  wire Constant1_out1;
+  reg [5:0] Delay_out1;  // ufix6
+  wire Compare_To_Constant1_out1;
+  wire Logical_Operator7_out1;
+  wire Switch_out1;
+  wire Logical_Operator9_out1;
+  wire Logical_Operator1_out1;
+  wire [5:0] count;  // ufix6
+  wire Compare_To_Constant_out1;
+  wire pop_on_empty_FIFO;
+  wire Logical_Operator6_out1;
+  wire Logical_Operator8_out1;
+  wire Logical_Operator5_out1;
+  wire push_on_full_FIFO;
+  wire Logical_Operator2_out1;
+
+
+  assign Constant_out1 = 1'b1;
+
+  assign Constant1_out1 = 1'b0;
+
+  Compare_To_Constant1_block u_Compare_To_Constant1 (.u(Delay_out1),  // ufix6
+                                                     .y(Compare_To_Constant1_out1)
+                                                     );
+
+  assign Switch_out1 = (Logical_Operator7_out1 == 1'b0 ? Constant_out1 :
+              Constant1_out1);
+
+  assign Logical_Operator1_out1 = Logical_Operator9_out1 ^ Logical_Operator7_out1;
+
+  MATLAB_Function_block1 u_MATLAB_Function (.clk(clk),
+                                            .reset(reset),
+                                            .enb(enb),
+                                            .rst(rst),
+                                            .enb_1(Logical_Operator1_out1),
+                                            .dir(Switch_out1),
+                                            .count(count)  // ufix6
+                                            );
+
+  always @(posedge clk or posedge reset)
+    begin : Delay_process
+      if (reset == 1'b1) begin
+        Delay_out1 <= 6'b000000;
+      end
+      else begin
+        if (enb) begin
+          Delay_out1 <= count;
+        end
+      end
+    end
+
+  Compare_To_Constant_block u_Compare_To_Constant (.u(Delay_out1),  // ufix6
+                                                   .y(Compare_To_Constant_out1)
+                                                   );
+
+  assign pop_on_empty_FIFO = Compare_To_Constant_out1 & pop;
+
+  assign Logical_Operator6_out1 =  ~ pop_on_empty_FIFO;
+
+  assign Logical_Operator7_out1 = pop & Logical_Operator6_out1;
+
+  assign Logical_Operator8_out1 =  ~ Logical_Operator7_out1;
+
+  assign Logical_Operator5_out1 = push & Logical_Operator8_out1;
+
+  assign push_on_full_FIFO = Logical_Operator5_out1 & Compare_To_Constant1_out1;
+
+  assign Logical_Operator2_out1 =  ~ push_on_full_FIFO;
+
+  assign Logical_Operator9_out1 = push & Logical_Operator2_out1;
+
+  assign valid_push = Logical_Operator9_out1;
+
+  assign valid_pop = Logical_Operator7_out1;
+
+endmodule  // Validate_Input_Push_Pop_block
+
+/////////////////////////////////////////////////////
+
+
+
+`timescale 1 ns / 1 ns
+
+module Compare_To_Constant1_block
+          (u,
+           y);
+
+
+  input   [5:0] u;  // ufix6
+  output  y;
+
+
+  wire [5:0] Constant_out1;  // ufix6
+  wire Compare_out1;
+
+
+  assign Constant_out1 = 6'b100000;
+
+  assign Compare_out1 = u == Constant_out1;
+
+  assign y = Compare_out1;
+
+endmodule  // Compare_To_Constant1_block
+
+
+///////////////////////////////////////////////////////
+
+
+
+
+`timescale 1 ns / 1 ns
+
+module MATLAB_Function_block1
+          (clk,
+           reset,
+           enb,
+           rst,
+           enb_1,
+           dir,
+           count);
+
+
+  input   clk;
+  input   reset;
+  input   enb;
+  input   rst;
+  input   enb_1;
+  input   dir;
+  output  [5:0] count;  // ufix6
+
+
+  reg [5:0] count_1;  // ufix6
+  reg [5:0] countReg;  // ufix6
+  reg [5:0] countReg_next;  // ufix6
+  reg [5:0] countReg_temp;  // ufix6
+  reg signed [7:0] sub_temp;  // sfix8
+  reg [6:0] cast;  // ufix7
+  reg [6:0] add_temp;  // ufix7
+  reg [6:0] t_0;  // ufix7
+  reg [6:0] t_1;  // ufix7
+  reg signed [7:0] t_2;  // sfix8
+
+
+  always @(posedge clk or posedge reset)
+    begin : MATLAB_Function_process
+      if (reset == 1'b1) begin
+        countReg <= 6'b000000;
+      end
+      else begin
+        if (enb) begin
+          countReg <= countReg_next;
+        end
+      end
+    end
+
+  always @(countReg, dir, enb_1, rst) begin
+    sub_temp = 8'sb00000000;
+    add_temp = 7'b0000000;
+    t_0 = 7'b0000000;
+    t_1 = 7'b0000000;
+    t_2 = 8'sb00000000;
+    cast = 7'b0000000;
+    countReg_temp = countReg;
+    if (rst) begin
+      countReg_temp = 6'b000000;
+    end
+    else if (enb_1) begin
+      if (dir) begin
+        if (countReg == 6'b100000) begin
+          countReg_temp = 6'b000000;
+        end
+        else begin
+          t_0 = {1'b0, countReg};
+          add_temp = t_0 + 7'b0000001;
+          if (add_temp[6] != 1'b0) begin
+            countReg_temp = 6'b111111;
+          end
+          else begin
+            countReg_temp = add_temp[5:0];
+          end
+        end
+      end
+      else if (countReg == 6'b000000) begin
+        countReg_temp = 6'b100000;
+      end
+      else begin
+        t_1 = {1'b0, countReg};
+        t_2 = {1'b0, t_1};
+        sub_temp = t_2 - 8'sb00000001;
+        if (sub_temp[7] == 1'b1) begin
+          cast = 7'b0000000;
+        end
+        else begin
+          cast = sub_temp[6:0];
+        end
+        if (cast[6] != 1'b0) begin
+          countReg_temp = 6'b111111;
+        end
+        else begin
+          countReg_temp = cast[5:0];
+        end
+      end
+    end
+    count_1 = countReg_temp;
+    countReg_next = countReg_temp;
+  end
+
+  assign count = count_1;
+
+endmodule  // MATLAB_Function_block1
+
+
+//////////////////////////////////////////////////
+
+
+
+
+`timescale 1 ns / 1 ns
+
+module Compare_To_Constant_block
+          (u,
+           y);
+
+
+  input   [5:0] u;  // ufix6
+  output  y;
+
+
+  wire [5:0] Constant_out1;  // ufix6
+  wire Compare_out1;
+
+
+  assign Constant_out1 = 6'b000000;
+
+  assign Compare_out1 = u == Constant_out1;
+
+  assign y = Compare_out1;
+
+endmodule  // Compare_To_Constant_block
+
+
+
+///////////////////////////////////////
+
+
+
+`timescale 1 ns / 1 ns
+
+module SimpleDualPortRAM_generic
+          (clk,
+           enb,
+           wr_din_re,
+           wr_din_im,
+           wr_addr,
+           wr_en,
+           rd_addr,
+           dout_re,
+           dout_im);
+
+  parameter integer AddrWidth  = 1;
+  parameter integer DataWidth  = 1;
+
+  input   clk;
+  input   enb;
+  input   signed [DataWidth - 1:0] wr_din_re;  // parameterized width
+  input   signed [DataWidth - 1:0] wr_din_im;  // parameterized width
+  input   [AddrWidth - 1:0] wr_addr;  // parameterized width
+  input   wr_en;  // ufix1
+  input   [AddrWidth - 1:0] rd_addr;  // parameterized width
+  output  signed [DataWidth - 1:0] dout_re;  // parameterized width
+  output  signed [DataWidth - 1:0] dout_im;  // parameterized width
+
+
+  reg  [DataWidth*2 - 1:0] ram [2**AddrWidth - 1:0];
+  reg  [DataWidth*2 - 1:0] data_int;
+  integer i;
+
+  initial begin
+    for (i=0; i<=2**AddrWidth - 1; i=i+1) begin
+      ram[i] = 0;
+    end
+    data_int = 0;
+  end
+
+
+  always @(posedge clk)
+    begin : SimpleDualPortRAM_generic_process
+      if (enb == 1'b1) begin
+        if (wr_en == 1'b1) begin
+          ram[wr_addr] <= {wr_din_re, wr_din_im};
+        end
+        data_int <= ram[rd_addr];
+      end
+    end
+
+  assign dout_re = data_int[DataWidth*2-1:DataWidth];
+  assign dout_im = data_int[DataWidth-1:0];
+
+endmodule  // SimpleDualPortRAM_generic
+
+
+
+//////////////////////////////
+
