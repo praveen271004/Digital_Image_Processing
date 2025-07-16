@@ -1,0 +1,28 @@
+﻿Requirements to start
+* A Kuiper Linux image flashed to an SD card (until you finish this idt there's any way to proceed) - the analog devices website also doesnt have the flash page anymore you’ll have to gpt it
+* IIO drivers enabled (pre-installed in Kuiper)
+* Scope : https://wiki.analog.com/resources/tools-software/linux-software/iio_oscilloscope
+* Scope is necessary i think to show any output
+* Once the upload is done boot the OS and connect to your hardware (usb or ethernet) via terminal commands 
+* Log in (default user is usually analog / analog or root / analog)
+
+
+1. Type this in terminal : iio_info
+2. You should see an element called ad9361_phy (only after connection of device)
+3. You can read/write settings like LO frequency, sampling rate, gain, etc
+4. Commands (in bash): 
+cd /sys/bus/iio/devices/iio:device0/
+
+
+# Check frequency
+cat out_altvoltage0_frequency
+
+
+# Set TX LO frequency to 2.4 GHz
+echo 2400000000 > out_altvoltage1_frequency
+
+
+# Enable TX LO
+echo 1 > out_altvoltage1_powerdown
+5. After this you can use python or c++ to do any kind of tasks like signal splitting or demodulation
+6. Set up scope from above link
