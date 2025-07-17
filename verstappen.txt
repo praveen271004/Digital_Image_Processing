@@ -1,0 +1,179 @@
+Step-by-Step Setup for ADRV9361-Z7035 with Kuiper Linux
+Step 1: Gather Required Hardware
+Ensure you have the following:
+
+ADRV9361-Z7035 board with a compatible carrier (e.g., ADRV1CRR-FMC or ADRV1CRR-BOB).
+Micro SD card (16GB or larger, Class 10 recommended).
+Micro-USB 2.0 UART cable for serial communication.
+Ethernet cable for network connectivity.
+Power supply (5.0V nominal, 4.5V–5.5V range, typically a barrel connector).
+Windows PC for terminal access and software tools.
+Optional: U.FL-to-U.FL cables for loop back testing, HDMI monitor, and OTG cable for peripherals (keyboard/mouse).
+Note: Take ESD precautions (ground yourself) to avoid damaging the board.
+
+Step 2: Prepare the Micro SD Card with Kuiper Linux
+You need to image the SD card with the Kuiper Linux distribution for the ADRV9361-Z7035.
+
+Download Kuiper Linux Image:
+Visit the Analog Devices Wiki .
+Download the latest Kuiper Linux image (e.g., 2021-02-23-ADI-Kuiper.img or a newer release, as per the November 21, 2024, GitHub update at adi-kuiper-gen).
+Alternatively, check the GitHub repository for pre-built images or instructions to generate a custom image.
+Write the Image to the SD Card:
+On your Windows PC, download and install a tool like Balena Etcher or Win32 Disk Imager to flash the SD card.
+Insert the micro SD card into your PC (use an SD card reader if needed).
+Open Etcher, select the downloaded .img file, choose your SD card, and click Flash. This process takes a few minutes.
+Once complete, safely eject the SD card.
+Note: Ensure the SD card is formatted to FAT32 before flashing if the tool requires it.
+
+Step 3: Connect the Hardware
+Set up the physical connections for the ADRV9361-Z7035:
+
+Attach the Carrier Board:
+Connect the ADRV9361-Z7035 SOM to the carrier board (e.g., ADRV1CRR-FMC). Ensure a secure connection.
+Connect the USB UART:
+Plug one end of the Micro-USB 2.0 UART cable into the board’s UART port and the other into your Windows PC.
+Connect the Ethernet Cable:
+Plug an Ethernet cable into the ETHERNET 1 port on the carrier board and connect the other end to your router or PC (for network access).
+Insert the SD Card:
+Insert the flashed micro SD card into the SD slot on the ADRV9361-Z7035.
+Power Supply:
+Connect the power supply (5.0V, 4.5V–5.5V) to the board’s power connector.
+Optional Connections:
+Connect an HDMI monitor to the carrier board for visual output.
+Use an OTG cable for peripherals like a keyboard or mouse if needed.
+Step 4: Boot Kuiper Linux
+Power on the board and access the terminal to verify the boot process.
+
+Set Up a Terminal Emulator:
+On your Windows PC, download and install Tera Term (or PuTTY).
+Open Device Manager to find the COM port assigned to the USB UART (e.g., COM3).
+In Tera Term, select Serial, choose the correct COM port, and set:
+Baud rate: 115200
+Data bits: 8
+Parity: None
+Stop bits: 1
+Flow control: None
+Power On the Board:
+Turn on the power switch (S5 on the FMC carrier board).
+Watch the terminal for boot messages, which should show the Linux kernel loading (e.g., kernel version 5.15.0).
+Log In:
+When prompted, log in with:
+Username: analog
+Password: analog
+Verify Kuiper Linux:
+Run the following command to confirm the OS:
+text
+
+Collapse
+
+Wrap
+
+Copy
+cat /etc/os-release
+Expected output includes Kuiper GNU/Linux 11.2 (bullseye).
+Check IIO devices to ensure the AD9361 is detected:
+text
+
+Collapse
+
+Wrap
+
+Copy
+iio_info
+Look for iio:device1: ad9361-phy and other devices like cf-ad9361-lpc.
+Troubleshooting: If the board doesn’t boot, verify the SD card image, check power supply voltage, and ensure the UART cable is properly connected. Refer to EngineerZone for common issues.
+
+Step 5: Engage the ADC and Read Data
+Use the IIO Oscilloscope to engage the ADC and visualize data, or use command-line tools for direct access.
+
+Find the Board’s IP Address:
+In the terminal, run:
+text
+
+Collapse
+
+Wrap
+
+Copy
+ifconfig
+Note the IP address (e.g., 192.168.1.100) under the eth0 interface.
+Install IIO Oscilloscope on Windows:
+Download IIO Oscilloscope from the Analog Devices Wiki .
+Install it on your Windows PC.
+Connect to the Board:
+Open IIO Oscilloscope, go to Settings → Connect, and enter the board’s IP address.
+Click Connect. You should see the AD9361 device listed.
+Read ADC Data:
+In IIO Oscilloscope, select the ad9361-phy device and enable ADC channels (e.g., voltage0 or voltage1).
+Configure settings like sampling rate (e.g., 1 MSPS) and trigger mode.
+Click the Plot tab to visualize real-time ADC data.
+Command-Line Alternative (Optional):
+In the terminal (via Tera Term), run:
+text
+
+Collapse
+
+Wrap
+
+Copy
+iio_readdev -c ad9361-phy voltage0
+This streams raw ADC data for the specified channel to the terminal.
+Note: Ensure the board is on the same network as your PC for IIO Oscilloscope to connect. If no data appears, check the ADC channel settings or refer to the IIO Oscilloscope Documentation.
+
+Step 6: Perform a Loop Back Test
+To test the ADC and DAC, perform a loop back by connecting the TX output to the RX input and verifying signal integrity.
+
+Hardware Setup for Loop Back:
+Locate the TX and RX ports on the ADRV9361-Z7035 (typically U.FL connectors on the carrier board).
+Use U.FL-to-U.FL cables to connect TX1 to RX1 (and optionally TX2 to RX2 for dual-channel testing).
+Ensure secure connections to avoid signal loss.
+Configure the Loop Back:
+For a simple chip-level loop back, use the AD9361’s Built-In Self-Test (BIST) mode:
+In IIO Oscilloscope, go to the ad9361-phy device settings.
+Enable BIST loop back mode (refer to the AD9361 datasheet for specific attributes).
+For FPGA-based loop back (recommended for full control):
+Download the HDL reference design for ADRV9361-Z7035 from Analog Devices HDL GitHub.
+Use Xilinx Vivado to load the design onto the Zynq FPGA, configuring the DMA to route ADC data to the DAC.
+This requires familiarity with FPGA tools; if you’re new, stick with software-based testing.
+Generate and Analyze Signals:
+In IIO Oscilloscope:
+Go to the DDS (Direct Digital Synthesis) tab to generate a test signal (e.g., a 1 MHz sine wave).
+Send the signal to the DAC (cf-ad9361-dds-core-lpc).
+Monitor the ADC (cf-ad9361-lpc) to verify the received signal matches the transmitted one.
+Alternatively, use MATLAB on Windows:
+Install the Communications System Toolbox Support Package for Xilinx Zynq-Based Radios.
+Use the IIO System Object to generate a waveform, transmit it via the DAC, and capture it via the ADC.
+Compare the signals to confirm loop back functionality.
+Verify Results:
+In IIO Oscilloscope, check the plotted waveforms for consistency.
+In MATLAB, calculate metrics like Error Vector Magnitude (EVM) to quantify performance.
+Troubleshooting: If no signal is received, verify cable connections, check FPGA configuration, or ensure the AD9361 is set to the correct frequency range (70 MHz–6 GHz). See EngineerZone Loop Back Discussion for guidance.
+
+Step 7: Using Kuiper Linux with Windows
+Kuiper Linux runs on the ADRV9361-Z7035’s Zynq processor, not on your Windows PC. However, you can interact with the board from Windows:
+
+Network Access:
+Use IIO Oscilloscope on Windows to connect to the board via its IP address (as done in Step 5).
+Ensure your PC and the board are on the same network (e.g., connected to the same router).
+MATLAB Integration:
+Install MATLAB on Windows with the Zynq support package.
+Use the IIO System Object to remotely control the board, configure the AD9361, and perform tasks like loop back testing.
+Terminal Access:
+Use Tera Term on Windows to access the board’s terminal via the USB UART for command-line operations.
+Limitation: You cannot run Kuiper Linux directly on Windows, as it’s a Linux distribution for ARM-based systems. All interactions from Windows are remote via network or serial connections.
+
+Step 8: Verify and Troubleshoot
+Verify Setup:
+Confirm the board boots correctly and IIO devices are listed (iio_info).
+Ensure ADC data is visible in IIO Oscilloscope.
+Check loop back signals match the transmitted waveform.
+Common Issues and Fixes:
+Board Not Booting: Re-flash the SD card, check power supply voltage, or consult EngineerZone.
+No ADC Data: Verify channel settings in IIO Oscilloscope or check iio_readdev output.
+Loop Back Fails: Ensure TX-RX cables are secure, and check AD9361 frequency settings.
+Additional Resources
+Analog Devices Wiki: ADRV9361-Z7035 Quick Start, Kuiper Linux.
+GitHub: HDL Reference Designs, Kuiper Linux Image.
+Community: EngineerZone for troubleshooting and advanced queries.
+MATLAB: Zynq Radio Support for software-based testing.
+By following these steps, you’ll set up your ADRV9361-Z7035 board, boot Kuiper Linux, engage the ADC, read data, and perform a loop back test, all while interacting from your Windows PC. If you encounter specific issues or need clarification on any step, let me know, and I can dive deeper!
