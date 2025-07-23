@@ -1,0 +1,530 @@
+`timescale 1ns / 1ps
+
+module uw_phase_resolver (
+    input clk,
+    input rst,
+
+    input [31:0] uw_pattern,                // 16 QPSK symbols × 2 bits
+    output reg [1:0] best_rot,              // Detected phase rotation
+    output reg [13:0] match_index,          // Location of UW
+    output reg valid                        // Asserted after best_rot is valid
+);
+
+    parameter TOTAL_SAMPLES = 16384;
+    parameter UW_LEN = 16;
+
+    // FSM state encoding
+    reg [1:0] state;
+    localparam SCAN_UW = 2'd0,
+               HOLD    = 2'd1,
+               ROTATE  = 2'd2,
+               DONE    = 2'd3;
+
+    // --- Address & Control ---
+    reg [13:0] bram_addr = 0;
+    wire signed [15:0] i_data, q_data;
+    reg window_en;
+    reg rot_en;
+
+    // --- Max Score Tracking ---
+    reg [3:0] max_score = 0;
+    reg [13:0] best_index = 0;
+
+    // --- Output after phase correction ---
+    wire signed [15:0] i_rot, q_rot;
+
+    // --- Instantiate Input BRAMs (read-only) ---
+    blk_mem_gen_0 I_BRAM (
+        .clka(clk),
+        .ena(1'b1),
+        .wea(1'b0),
+        .addra(bram_addr),
+        .dina(16'd0),
+        .douta(i_data)
+    );
+
+    blk_mem_gen_1 Q_BRAM (
+        .clka(clk),
+        .ena(1'b1),
+        .wea(1'b0),
+        .addra(bram_addr),
+        .dina(16'd0),
+        .douta(q_data)
+    );
+
+    // --- Output BRAMs for rotated I/Q ---
+    blk_mem_gen_2 ROT_I_BRAM (
+        .clka(clk),
+        .ena(rot_en),
+        .wea(rot_en),
+        .addra(bram_addr),
+        .dina(i_rot),
+        .douta()  // not needed
+    );
+
+    blk_mem_gen_3 ROT_Q_BRAM (
+        .clka(clk),
+        .ena(rot_en),
+        .wea(rot_en),
+        .addra(bram_addr),
+        .dina(q_rot),
+        .douta()
+    );
+
+    // --- Window Buffer for 16-sample frame ---
+    wire signed [15:0] i_sym0, i_sym1, i_sym2, i_sym3;
+    wire signed [15:0] i_sym4, i_sym5, i_sym6, i_sym7;
+    wire signed [15:0] i_sym8, i_sym9, i_sym10, i_sym11;
+    wire signed [15:0] i_sym12, i_sym13, i_sym14, i_sym15;
+
+    wire signed [15:0] q_sym0, q_sym1, q_sym2, q_sym3;
+    wire signed [15:0] q_sym4, q_sym5, q_sym6, q_sym7;
+    wire signed [15:0] q_sym8, q_sym9, q_sym10, q_sym11;
+    wire signed [15:0] q_sym12, q_sym13, q_sym14, q_sym15;
+
+    window_buffer buffer_inst (
+        .clk(clk),
+        .rst(rst),
+        .in_en(window_en),
+        .in_i(i_data),
+        .in_q(q_data),
+        .out_i0(i_sym0), .out_q0(q_sym0),
+        .out_i1(i_sym1), .out_q1(q_sym1),
+        .out_i2(i_sym2), .out_q2(q_sym2),
+        .out_i3(i_sym3), .out_q3(q_sym3),
+        .out_i4(i_sym4), .out_q4(q_sym4),
+        .out_i5(i_sym5), .out_q5(q_sym5),
+        .out_i6(i_sym6), .out_q6(q_sym6),
+        .out_i7(i_sym7), .out_q7(q_sym7),
+        .out_i8(i_sym8), .out_q8(q_sym8),
+        .out_i9(i_sym9), .out_q9(q_sym9),
+        .out_i10(i_sym10), .out_q10(q_sym10),
+        .out_i11(i_sym11), .out_q11(q_sym11),
+        .out_i12(i_sym12), .out_q12(q_sym12),
+        .out_i13(i_sym13), .out_q13(q_sym13),
+        .out_i14(i_sym14), .out_q14(q_sym14),
+        .out_i15(i_sym15), .out_q15(q_sym15)
+    );
+
+    // --- Match Score Module ---
+    wire [1:0] match_rot;
+    wire [3:0] match_score;
+
+    uw_match_score scorer (
+        .clk(clk),
+        .rst(rst),
+        .in_en(window_en),
+        .uw_pattern(uw_pattern),
+        .i0(i_sym0),   .q0(q_sym0),
+        .i1(i_sym1),   .q1(q_sym1),
+        .i2(i_sym2),   .q2(q_sym2),
+        .i3(i_sym3),   .q3(q_sym3),
+        .i4(i_sym4),   .q4(q_sym4),
+        .i5(i_sym5),   .q5(q_sym5),
+        .i6(i_sym6),   .q6(q_sym6),
+        .i7(i_sym7),   .q7(q_sym7),
+        .i8(i_sym8),   .q8(q_sym8),
+        .i9(i_sym9),   .q9(q_sym9),
+        .i10(i_sym10), .q10(q_sym10),
+        .i11(i_sym11), .q11(q_sym11),
+        .i12(i_sym12), .q12(q_sym12),
+        .i13(i_sym13), .q13(q_sym13),
+        .i14(i_sym14), .q14(q_sym14),
+        .i15(i_sym15), .q15(q_sym15),
+        .best_rot(match_rot),
+        .score(match_score)
+    );
+
+    // --- Phase Corrector ---
+    phase_corrector pc_inst (
+        .best_rot(best_rot),
+        .i_in(i_data),
+        .q_in(q_data),
+        .i_out(i_rot),
+        .q_out(q_rot)
+    );
+
+    // --- FSM Control Logic ---
+    always @(posedge clk) begin
+        if (rst) begin
+            state       <= SCAN_UW;
+            bram_addr   <= 0;
+            window_en   <= 0;
+            rot_en      <= 0;
+            valid       <= 0;
+            best_rot    <= 0;
+            max_score   <= 0;
+            match_index <= 0;
+        end else begin
+            case (state)
+                SCAN_UW: begin
+                    window_en <= 1;
+                    if (bram_addr < TOTAL_SAMPLES) begin
+                        bram_addr <= bram_addr + 1;
+                        if (match_score > max_score) begin
+                            max_score   <= match_score;
+                            best_index  <= bram_addr - UW_LEN + 1;
+                            best_rot    <= match_rot;
+                        end
+                    end else begin
+                        window_en   <= 0;
+                        match_index <= best_index;
+                        valid       <= 1;
+                        bram_addr   <= 0;
+                        state       <= ROTATE;
+                    end
+                end
+
+                ROTATE: begin
+                    rot_en <= 1;
+                    if (bram_addr < TOTAL_SAMPLES) begin
+                        bram_addr <= bram_addr + 1;
+                    end else begin
+                        rot_en <= 0;
+                        state  <= DONE;
+                    end
+                end
+
+                DONE: begin
+                    rot_en <= 0;
+                end
+            endcase
+        end
+    end
+
+endmodule
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+
+
+
+// window_buffer.v
+`timescale 1ns / 1ps
+
+module window_buffer (
+    input clk,
+    input rst,
+    input in_en,
+    input signed [15:0] in_i,
+    input signed [15:0] in_q,
+
+    output reg signed [15:0] out_i0, output reg signed [15:0] out_q0,
+    output reg signed [15:0] out_i1, output reg signed [15:0] out_q1,
+    output reg signed [15:0] out_i2, output reg signed [15:0] out_q2,
+    output reg signed [15:0] out_i3, output reg signed [15:0] out_q3,
+    output reg signed [15:0] out_i4, output reg signed [15:0] out_q4,
+    output reg signed [15:0] out_i5, output reg signed [15:0] out_q5,
+    output reg signed [15:0] out_i6, output reg signed [15:0] out_q6,
+    output reg signed [15:0] out_i7, output reg signed [15:0] out_q7,
+    output reg signed [15:0] out_i8, output reg signed [15:0] out_q8,
+    output reg signed [15:0] out_i9, output reg signed [15:0] out_q9,
+    output reg signed [15:0] out_i10, output reg signed [15:0] out_q10,
+    output reg signed [15:0] out_i11, output reg signed [15:0] out_q11,
+    output reg signed [15:0] out_i12, output reg signed [15:0] out_q12,
+    output reg signed [15:0] out_i13, output reg signed [15:0] out_q13,
+    output reg signed [15:0] out_i14, output reg signed [15:0] out_q14,
+    output reg signed [15:0] out_i15, output reg signed [15:0] out_q15
+);
+
+    always @(posedge clk) begin
+        if (rst) begin
+            out_i0 <= 0;  out_q0 <= 0;
+            out_i1 <= 0;  out_q1 <= 0;
+            out_i2 <= 0;  out_q2 <= 0;
+            out_i3 <= 0;  out_q3 <= 0;
+            out_i4 <= 0;  out_q4 <= 0;
+            out_i5 <= 0;  out_q5 <= 0;
+            out_i6 <= 0;  out_q6 <= 0;
+            out_i7 <= 0;  out_q7 <= 0;
+            out_i8 <= 0;  out_q8 <= 0;
+            out_i9 <= 0;  out_q9 <= 0;
+            out_i10 <= 0; out_q10 <= 0;
+            out_i11 <= 0; out_q11 <= 0;
+            out_i12 <= 0; out_q12 <= 0;
+            out_i13 <= 0; out_q13 <= 0;
+            out_i14 <= 0; out_q14 <= 0;
+            out_i15 <= 0; out_q15 <= 0;
+        end else if (in_en) begin
+            // Shift left
+            out_i0  <= out_i1;   out_q0  <= out_q1;
+            out_i1  <= out_i2;   out_q1  <= out_q2;
+            out_i2  <= out_i3;   out_q2  <= out_q3;
+            out_i3  <= out_i4;   out_q3  <= out_q4;
+            out_i4  <= out_i5;   out_q4  <= out_q5;
+            out_i5  <= out_i6;   out_q5  <= out_q6;
+            out_i6  <= out_i7;   out_q6  <= out_q7;
+            out_i7  <= out_i8;   out_q7  <= out_q8;
+            out_i8  <= out_i9;   out_q8  <= out_q9;
+            out_i9  <= out_i10;  out_q9  <= out_q10;
+            out_i10 <= out_i11;  out_q10 <= out_q11;
+            out_i11 <= out_i12;  out_q11 <= out_q12;
+            out_i12 <= out_i13;  out_q12 <= out_q13;
+            out_i13 <= out_i14;  out_q13 <= out_q14;
+            out_i14 <= out_i15;  out_q14 <= out_q15;
+            out_i15 <= in_i;     out_q15 <= in_q;   // new sample at end
+        end
+    end
+endmodule
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+`timescale 1ns / 1ps
+
+module uw_match_score (
+    input clk,
+    input rst,
+    input in_en,
+
+    input [31:0] uw_pattern,  // 16 QPSK symbols × 2 bits (i0q0...i15q15)
+
+    input signed [15:0] i0, input signed [15:0] q0,
+    input signed [15:0] i1, input signed [15:0] q1,
+    input signed [15:0] i2, input signed [15:0] q2,
+    input signed [15:0] i3, input signed [15:0] q3,
+    input signed [15:0] i4, input signed [15:0] q4,
+    input signed [15:0] i5, input signed [15:0] q5,
+    input signed [15:0] i6, input signed [15:0] q6,
+    input signed [15:0] i7, input signed [15:0] q7,
+    input signed [15:0] i8, input signed [15:0] q8,
+    input signed [15:0] i9, input signed [15:0] q9,
+    input signed [15:0] i10, input signed [15:0] q10,
+    input signed [15:0] i11, input signed [15:0] q11,
+    input signed [15:0] i12, input signed [15:0] q12,
+    input signed [15:0] i13, input signed [15:0] q13,
+    input signed [15:0] i14, input signed [15:0] q14,
+    input signed [15:0] i15, input signed [15:0] q15,
+
+    output reg [1:0] best_rot,
+    output reg [4:0] score  // max score = 32
+);
+
+    reg [31:0] rot_sym[0:3];     // 0°, 90°, 180°, 270°
+    reg [4:0]  rot_score[0:3];   // Matching scores
+
+    reg signed [15:0] i_tmp, q_tmp;
+    reg [1:0] sym;
+    reg i_sign, q_sign;
+
+    integer i, j;
+
+    always @(posedge clk) begin
+        if (rst) begin
+            best_rot <= 2'd0;
+            score    <= 5'd0;
+        end else if (in_en) begin
+            // Clear buffers
+            for (j = 0; j < 4; j = j + 1)
+                rot_sym[j] = 32'd0;
+
+            // Symbol loop
+            for (i = 0; i < 16; i = i + 1) begin
+                case (i)
+                    0:  begin i_tmp = i0;  q_tmp = q0;  end
+                    1:  begin i_tmp = i1;  q_tmp = q1;  end
+                    2:  begin i_tmp = i2;  q_tmp = q2;  end
+                    3:  begin i_tmp = i3;  q_tmp = q3;  end
+                    4:  begin i_tmp = i4;  q_tmp = q4;  end
+                    5:  begin i_tmp = i5;  q_tmp = q5;  end
+                    6:  begin i_tmp = i6;  q_tmp = q6;  end
+                    7:  begin i_tmp = i7;  q_tmp = q7;  end
+                    8:  begin i_tmp = i8;  q_tmp = q8;  end
+                    9:  begin i_tmp = i9;  q_tmp = q9;  end
+                    10: begin i_tmp = i10; q_tmp = q10; end
+                    11: begin i_tmp = i11; q_tmp = q11; end
+                    12: begin i_tmp = i12; q_tmp = q12; end
+                    13: begin i_tmp = i13; q_tmp = q13; end
+                    14: begin i_tmp = i14; q_tmp = q14; end
+                    15: begin i_tmp = i15; q_tmp = q15; end
+                endcase
+
+                // Sign bit to logic: 1 if positive, 0 if negative
+                i_sign = ~i_tmp[15];
+                q_sign = ~q_tmp[15];
+
+                // Rotation 0°: (I, Q) ? {q, i}
+                sym = {q_sign, i_sign};
+                rot_sym[0][(31 - 2*i) -: 2] = sym;
+
+                // Rotation 90°: (-Q, I) ? {i, ~q}
+                sym = {i_sign, ~q_sign};
+                rot_sym[1][(31 - 2*i) -: 2] = sym;
+
+                // Rotation 180°: (-I, -Q) ? {~q, ~i}
+                sym = {~q_sign, ~i_sign};
+                rot_sym[2][(31 - 2*i) -: 2] = sym;
+
+                // Rotation 270°: (Q, -I) ? {~i, q}
+                sym = {~i_sign, q_sign};
+                rot_sym[3][(31 - 2*i) -: 2] = sym;
+            end
+
+            // Score each rotation
+            for (j = 0; j < 4; j = j + 1) begin
+                rot_score[j] = 0;
+                for (i = 0; i < 32; i = i + 1)
+                    if (rot_sym[j][i] == uw_pattern[i])
+                        rot_score[j] = rot_score[j] + 1;
+            end
+
+            // Select best rotation
+            if (rot_score[0] >= rot_score[1] &&
+                rot_score[0] >= rot_score[2] &&
+                rot_score[0] >= rot_score[3]) begin
+                best_rot <= 2'd0;
+                score    <= rot_score[0];
+            end else if (rot_score[1] >= rot_score[2] &&
+                         rot_score[1] >= rot_score[3]) begin
+                best_rot <= 2'd1;
+                score    <= rot_score[1];
+            end else if (rot_score[2] >= rot_score[3]) begin
+                best_rot <= 2'd2;
+                score    <= rot_score[2];
+            end else begin
+                best_rot <= 2'd3;
+                score    <= rot_score[3];
+            end
+        end
+    end
+endmodule
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+`timescale 1ns / 1ps
+
+// ===========================================================
+// MODULE: phase_corrector
+// PURPOSE: Rotate input I/Q samples based on best_rot value.
+//          Used to align QPSK symbols to original phase.
+// INPUTS:
+//   - best_rot : 2-bit rotation value (0° / 90° / 180° / 270°)
+//   - i_in     : 16-bit signed I sample (Q1.15 format assumed)
+//   - q_in     : 16-bit signed Q sample
+// OUTPUTS:
+//   - i_out    : Rotated I sample
+//   - q_out    : Rotated Q sample
+// ===========================================================
+module phase_corrector (
+    input wire [1:0] best_rot,           // 00: 0°, 01: 90°, 10: 180°, 11: 270°
+    input wire signed [15:0] i_in,       // Input In-phase component
+    input wire signed [15:0] q_in,       // Input Quadrature component
+    output reg signed [15:0] i_out,      // Rotated In-phase component
+    output reg signed [15:0] q_out       // Rotated Quadrature component
+);
+
+    always @(*) begin
+        case (best_rot)
+            2'b00: begin
+                // 0° rotation: no change
+                i_out = i_in;
+                q_out = q_in;
+            end
+            2'b01: begin
+                // 90° rotation: (I, Q) => (Q, -I)
+                i_out = q_in;
+                q_out = -i_in;
+            end
+            2'b10: begin
+                // 180° rotation: (I, Q) => (-I, -Q)
+                i_out = -i_in;
+                q_out = -q_in;
+            end
+            2'b11: begin
+                // 270° rotation: (I, Q) => (-Q, I)
+                i_out = -q_in;
+                q_out = i_in;
+            end
+            default: begin
+                // Should never happen, but for safety
+                i_out = i_in;
+                q_out = q_in;
+            end
+        endcase
+    end
+
+endmodule
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+
+`timescale 1ns / 1ps
+
+module tb_uw_phase_resolver;
+
+    reg clk = 0;
+    reg rst = 1;
+
+    wire [1:0] best_rot;
+    wire [13:0] match_index;
+    wire valid;
+
+    // UW pattern: 16 QPSK symbols (2 bits each) = 32-bit word
+    // Example pattern (randomly chosen): 16 symbols = 32'bq15i15 ... q0i0
+    reg [31:0] uw_pattern;
+
+    // Instantiate the DUT
+    uw_phase_resolver uut (
+        .clk(clk),
+        .rst(rst),
+        .uw_pattern(uw_pattern),
+        .best_rot(best_rot),
+        .match_index(match_index),
+        .valid(valid)
+    );
+
+    // Clock generation
+    always #5 clk = ~clk;  // 100 MHz
+
+    // Test sequence
+    initial begin
+        // Initialize UW pattern (example: 16 QPSK symbols packed as {q,i})
+        uw_pattern = 32'b10011100011000110110010101101111;
+
+        // Reset pulse
+        rst = 1;
+        #20;
+        rst = 0;
+
+        // Wait until valid output is asserted
+        wait (valid == 1);
+
+        // Display result
+        $display("Best Rotation : %d", best_rot);
+        $display("Match Index   : %d", match_index);
+        $finish;
+    end
+
+endmodule
+

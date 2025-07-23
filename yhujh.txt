@@ -1,0 +1,45 @@
+Phase Ambiguity Resolution Using Unique Word in Digital Communication
+In digital communication systems, especially those utilizing QPSK (Quadrature Phase Shift Keying) or other M-ary PSK modulations, phase ambiguity is a well-known challenge. Phase ambiguity arises due to the inability of the receiver's carrier recovery loop (such as a Costas loop or PLL) to distinguish between phase shifts of ±90°, ±180°, etc., depending on the modulation scheme. For example, in QPSK, the constellation consists of four symbols separated by 90°, and the demodulator may lock onto the carrier with a phase offset of 0°, 90°, 180°, or 270° relative to the transmitter. This results in a correct symbol amplitude but with a rotated constellation, which causes the receiver to interpret symbols incorrectly.
+
+To overcome this issue, one effective strategy is to insert a known Unique Word (UW) or preamble into the transmitted data stream. The UW is a fixed, predefined sequence of symbols that is known to both the transmitter and receiver. This sequence is typically placed at the beginning of a frame or data burst. Upon reception, the receiver scans incoming symbols and attempts to match segments of the received signal against the known UW pattern. Importantly, the receiver performs this comparison for all possible phase rotations allowed by the modulation scheme.
+
+In the case of QPSK, this involves checking the received symbol stream under four different interpretations corresponding to 0°, 90°, 180°, and 270° rotations. The receiver computes a match score for each rotation, which typically involves comparing the sign bits of the in-phase (I) and quadrature (Q) components with the expected pattern. The rotation that results in the highest match score is selected as the correct phase orientation. This process is referred to as phase ambiguity resolution, and the use of a UW enables it to be resolved with high confidence.
+
+Once the best match is identified, the receiver applies a corresponding phase correction to the entire data stream, effectively rotating the constellation back to its original orientation. This allows subsequent symbols to be demodulated correctly. Because the UW is fixed and known, it provides a reliable reference for correcting the phase of the entire frame, regardless of the initial offset.
+
+This technique is particularly important in burst-mode communications, OFDM systems, or packet-based protocols (e.g., DVB, LTE, Wi-Fi), where the carrier phase may not be continuous between frames. It also plays a critical role in Software Defined Radio (SDR) systems where timing and frequency uncertainties are often higher. Overall, phase ambiguity resolution using a Unique Word is a crucial mechanism for enabling robust and error-free communication in systems that rely on phase-modulated signals.
+
+//////////////////////////////////////////////////////
+
+
+1. Introduction
+In digital communication systems employing QPSK (Quadrature Phase Shift Keying), phase ambiguity is a common problem, especially when using carrier recovery loops that may lock onto incorrect phase states. A common solution to resolve this ambiguity is to embed a known Unique Word (UW) pattern into the transmitted signal and detect it at the receiver. The system presented here is designed to detect a 16-symbol QPSK UW pattern in a stream of baseband I/Q samples, determine the correct phase rotation, and apply the corresponding correction. This ensures that the subsequent symbols can be interpreted correctly regardless of the carrier-induced phase rotation.
+
+2. System Overview
+The top-level module uw_phase_resolver coordinates the entire process. It takes in a 32-bit known UW pattern (representing 16 QPSK symbols, each encoded in 2 bits) and processes a buffer of 16,384 incoming complex samples stored in dual-port BRAMs (one for I and one for Q). The system uses a sliding window to compare 16-symbol blocks against the known UW pattern under all four possible QPSK phase rotations (0°, 90°, 180°, and 270°). The best matching rotation and corresponding index are output. Once the correct rotation is determined, all samples are phase-corrected and stored in separate output BRAMs.
+
+3. FSM Control Logic
+The control flow of the system is governed by a finite state machine (FSM) with four states: SCAN_UW, HOLD, ROTATE, and DONE. In the SCAN_UW state, a sliding window buffer shifts through the entire BRAM address range, feeding 16-symbol blocks to the UW matching module. For each position, the system evaluates the similarity of the received block to the UW under all four rotations and tracks the best match. Once scanning is complete, the system moves to the ROTATE state, where all samples are corrected based on the detected rotation. In the DONE state, the module indicates that output data is ready through the valid signal.
+
+4. Window Buffer
+The window_buffer module implements a 16-symbol sliding buffer. It captures and shifts 16 consecutive I/Q samples from BRAM, updating one symbol per clock cycle. The buffer provides parallel outputs for all 16 I and Q values, which are essential for simultaneously comparing the full block with the UW pattern. This window shifts only when window_en is asserted, synchronized with the FSM state.
+
+5. UW Match Score Module
+The uw_match_score module performs the core comparison logic. It receives the UW pattern and the 16-symbol window and evaluates four binary symbol streams corresponding to each of the four possible QPSK rotations. Each complex symbol is converted to a 2-bit representation based on the signs of the I and Q components. For each rotation, a 32-bit signature is built and compared bitwise to the known UW. The module calculates a matching score for each rotation by counting the number of bitwise matches and outputs the best score and corresponding rotation index (best_rot). This score allows the system to reliably identify the correct orientation of the received UW despite any phase rotation.
+
+6. Phase Corrector
+Once the best rotation is determined, the phase_corrector module is used to realign the incoming samples to their original phase. This module applies a simple mathematical transformation to each sample based on the selected rotation. For example, a 90° rotation transforms (I, Q) into (Q, -I), a 180° rotation flips the signs of both I and Q, and so on. This module ensures that all samples following the UW are aligned correctly for demodulation.
+
+7. Output BRAMs
+After phase correction, the rotated I and Q samples are written into two separate output BRAMs: ROT_I_BRAM and ROT_Q_BRAM. These BRAMs serve as corrected outputs, which can be accessed by subsequent receiver stages, such as demappers or frame parsers. Writing is controlled by rot_en and synchronized with the FSM during the ROTATE phase.
+
+8. Testbench Verification
+A testbench module tb_uw_phase_resolver is provided to validate the functionality of the design. It initializes a fixed UW pattern and applies a reset to the system. A clock of 100 MHz is generated, and the simulation waits for the valid signal to assert, indicating that the UW was found and corrected. The final values of best_rot and match_index are displayed using $display commands, confirming the system’s ability to detect and resolve the phase ambiguity.
+
+9. Applications
+This architecture is particularly useful in systems that require robust synchronization and phase correction, such as OFDM-based systems, burst-mode communication, or packet-based receivers. The use of a UW allows for unambiguous frame detection, while the rotation logic ensures proper constellation alignment. This makes the design suitable for wireless communication systems such as LTE, DVB, or SDR-based implementations using FPGAs and RF transceivers.
+
+10. Conclusion
+The uw_phase_resolver module provides an efficient and reliable mechanism to detect a known QPSK pattern and correct phase ambiguity. Its modular design, with separate FSM control, sliding buffer, matching logic, and phase correction, allows for high-speed operation suitable for FPGA implementation. The system’s ability to scan large datasets, evaluate all QPSK rotations, and correct the signal makes it highly adaptable for real-time signal processing applications.
+
+
