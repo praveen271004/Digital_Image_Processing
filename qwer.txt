@@ -1,0 +1,61 @@
+Implementation of Phase Ambiguity Resolver (PAR) using Unique Word Method on FPGA board (ZYNQ 7000)
+
+1.	INTRODUCTION
+
+In digital communication systems, especially those utilizing QPSK or other M-ary PSK modulations, phase ambiguity is a well-known challenge. Phase ambiguity due to the inability of the receiver’s carrier recovery loop to distinguish between phase shifts of ±90°, ±180°, etc., depending on the modulation scheme. For example, in QPSK, the constellation consists of four symbols separated by 90°, and the demodulator may lock onto the carrier with a phase offset of 0°, 90°, 180°, or 270° relative to the transmitter. This results in a correct symbol amplitude but with a rotated constellation, which causes the receiver to interpret symbols incorrectly.
+
+To overcome this issue, one effective strategy is to insert a known Unique Word (UW) or preamble into the transmitted data stream. The UW is a fixed, predefined sequence of symbols that is known to both the transmitter and receiver. This sequence is typically placed at the beginning of a frame or data burst. Upon reception, the receiver scans incoming symbols and attempts to match segments of the received signal against the known UW pattern. Importantly, the receiver performs this comparison for all possible phase rotations allowed by the modulation scheme.
+
+In the case of QPSK, this involves checking the received symbol stream under four different interpretations corresponding to 0°, 90°, 180°, and 270° rotations. The receiver computes a match score for each rotation, which typically involves comparing the sign bits of the in-phase (I) and quadrature (Q) components with the expected pattern. The rotation that results in the highest match score is selected as the correct phase orientation. This process is referred to as phase ambiguity resolution, and the use of a UW enables it to be resolved with high confidence.
+
+Once the best match is identified, the receiver applies a corresponding phase correction to the entire data stream, effectively rotating the constellation back to its original orientation. This allows subsequent symbols to be demodulated correctly. Because the UW is fixed and known, it provides a reliable reference for correcting the phase of the entire frame, regardless of the initial offset.
+
+
+2.	SYSTEM OVERVIEW
+
+i)	UW_PHASE_RESOLVER MODULE:
+
+As shown in the picture below, the top-level module uw_phase_resolver coordinates the entire process. It takes in a 32-bit known UW pattern (representing 16 QPSK symbols, each encoded in 2 bits) and processes a buffer of 16,384 incoming complex samples stored in dual-port BRAMs (one for I and one for Q). The system uses a sliding window to compare 16-symbol blocks against the known UW pattern under all four possible QPSK phase rotations (0°, 90°, 180°, and 270°). The best matching rotation and corresponding index are output. Once the correct rotation is determined, all samples are phase-corrected and stored in separate output BRAMs.
+
+The control flow of the system is governed by a finite state machine (FSM) with four states: CAN_UW, HOLD, ROTATE, and DONE. In the SCAN_UW state, a sliding window buffer shifts through the entire BRAM address range, feeding 16-symbol blocks to the UW matching module. For each position, the system evaluates the similarity of the received block to the UW under all four rotations and tracks the best match. Once scanning is complete, the system moves to the ROTATE state, where all samples are corrected based on the detected rotation. In the DONE state, the module indicates that output data is ready through the valid signal.
+
+ii)	WINDOW BUFFER MODULE:
+
+The window_buffer module implements a 16-symbol sliding buffer. It captures and shifts 16 consecutive I/Q samples from BRAM, updating one symbol per clock cycle. The buffer provides parallel outputs for all 16 I and Q values, which are essential for simultaneously comparing the full block with the UW pattern. This window shifts only when window_en is asserted, synchronized with the FSM state.
+
+
+ 
+
+
+iii)	UW_MATCH_SCORE MODULE:
+
+The uw_match_score module performs the core comparison logic. It receives the UW pattern and the 16-symbol window and evaluates four binary symbol streams corresponding to each of the four possible QPSK rotations. Each complex symbol is converted to a 2-bit representation based on the signs of the I and Q components. For each rotation, a 32-bit signature is built and compared bitwise to the known UW. The module calculates a matching score for each rotation by counting the number of bitwise matches and outputs the best score and corresponding rotation index (best_rot). This score allows the system to reliably identify the correct orientation of the received UW despite any phase rotation.
+
+iv)	PHASE_CORRECTOR MODULE:
+
+Once the best rotation is determined, the phase_corrector module is used to realign the incoming samples to their original phase. This module applies a simple mathematical transformation to each sample based on the selected rotation. For example, a 90° rotation transforms (I, Q) into (Q, -I), a 180° rotation flips the signs of both I and Q, and so on. This module ensures that all samples following the UW are aligned correctly for demodulation.
+
+v)	OUTPUT BRAMs & TESTBENCH:
+
+After phase correction, the rotated I and Q samples are written into two separate output BRAMs: ROT_I_BRAM and ROT_Q_BRAM. These BRAMs serve as corrected outputs, which can be accessed by subsequent receiver stages, such as demappers or frame parsers. Writing is controlled by rot_en and synchronized with the FSM during the ROTATE phase. A testbench module tb_uw_phase_resolver is provided to validate the functionality of the design. It initializes a fixed UW pattern and applies a reset to the system. A clock of 100 MHz is generated, and the simulation waits for the valid signal to assert, indicating that the UW was found and corrected. The final values of best_rot and match_index are displayed using $display commands, confirming the system’s ability to detect and resolve the phase ambiguity.
+
+3.	OUTPUT
+
+Below attached pictures represent the input and output of PAR, and number of samples which are equal to the unique word and then determining the best rotation.
+
+•	i_data&q_data: Inputs for the system
+•	best_index: At that particular index, best score of matching with Unique Word.
+•	max_score: The number of samples matching with the Unique Word. According to the output given below, the maximum number of samples are 16 and at the 121st index we have found the best score of 11 samples which are matching with the Unique Word.
+•	best_rot: According to the above given score, the code adapts for the best rotation and gives it through the whole duration. 
+•	i_out&q_out: Outputs of the systems, which is stored in BRAMs.
+
+ 
+
+
+ 
+
+
+TEAM MEMBERS: 
+1)	VigneshKailash (BT22ECE049) – 8328043193
+2)	Praveen (BT22ECE047) – 9493641996
+3)	SriramVaibhav (BT22ECE056) - 7989376691
