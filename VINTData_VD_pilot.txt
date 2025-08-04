@@ -1,0 +1,278 @@
+`timescale 1ns / 1ps
+
+// viterbi decoder
+
+module viterbi_top(
+    input clk,
+    input rst,
+    input [9:0] input_bits,  // 5 symbols: 10 bits (2 per symbol)
+    output [4:0] decoded_bits
+);
+    wire [1:0] symbols [4:0];
+    assign symbols[0] = input_bits[9:8];
+    assign symbols[1] = input_bits[7:6];
+    assign symbols[2] = input_bits[5:4];
+    assign symbols[3] = input_bits[3:2];
+    assign symbols[4] = input_bits[1:0];
+
+    // Expected outputs for each transition to each state
+    reg [1:0] expected_syms [3:0][1:0];  // For each state: 2 incoming branches
+
+    initial begin
+        // Fill with expected outputs based on convolutional code
+        expected_syms[0][0] = 2'b00; // from 0
+        expected_syms[0][1] = 2'b11; // from 1
+        expected_syms[1][0] = 2'b11;
+        expected_syms[1][1] = 2'b00;
+        expected_syms[2][0] = 2'b10;
+        expected_syms[2][1] = 2'b01;
+        expected_syms[3][0] = 2'b01;
+        expected_syms[3][1] = 2'b10;
+    end
+
+    wire [3:0] path_metric [0:3];  // Time x State
+    wire [1:0] bmetric [3:0][1:0];
+    wire [3:0] new_pm;
+    wire [0:0] sel [3:0];
+
+    // Survivors
+    reg [4:0] survivor_path_out [3:0];
+    wire [4:0] survivor_path;
+    reg [3:0]path;
+
+    genvar t, s;
+    generate
+        for (s = 0; s < 4; s = s + 1) begin: compute_bmu
+            for (t = 0; t < 2; t = t + 1) begin: per_branch
+                BMU bmu_inst (
+                    .rcv_sym(symbols[t]),
+                    .expected_sym(expected_syms[s][t]),
+                    .metric(bmetric[s][t])
+                );
+            end
+        end
+    endgenerate
+
+    generate
+        for (s = 0; s < 4; s = s + 1) begin: compute_acsu
+            ACSU acsu_inst (
+                .pm1(4'd0), .pm2(4'd0),  // replace with previous PMs
+                .bm1(bmetric[s][0]),
+                .bm2(bmetric[s][1]),
+                .new_pm(path_metric[s]),
+                .sel_path(sel[s])
+            );
+        end
+    endgenerate
+
+//    path = {path_metric[3],path_metric[2],path_metric[1],path_metric[0]};
+    PMU #(5) pathmem (
+        .clk(clk),
+        .rst(rst),
+        .path_select({sel[3], sel[2], sel[1], sel[0]}),
+        .survivor_path_out(survivor_path)
+    );
+        
+     always @(posedge clk or posedge rst) begin
+     
+         survivor_path_out[0] = survivor_path[0];
+         survivor_path_out[1] = survivor_path[1];
+         survivor_path_out[2] = survivor_path[2];
+         survivor_path_out[3] = survivor_path[3];
+     end
+
+    TB #(5) trace (
+        .survivor_path_out(survivor_path),
+        .final_metrics(path_metric[4]),
+        .decoded_bits(decoded_bits)
+    );
+endmodule
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////////
+
+
+`timescale 1ns / 1ps
+
+
+
+module ACSU(
+    input [3:0] pm1, pm2,
+    input [1:0] bm1, bm2,
+    output reg [3:0] new_pm,
+    output reg sel_path  // 0 -> from path 1, 1 -> from path 2
+);
+    reg [3:0] total1, total2;
+    always @(*) begin
+        total1 = pm1 + bm1;
+        total2 = pm2 + bm2;
+        if (total1 <= total2) begin
+            new_pm = total1;
+            sel_path = 0;
+        end else begin
+            new_pm = total2;
+            sel_path = 1;
+        end
+    end
+endmodule
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+`timescale 1ns / 1ps
+
+
+module TB #(parameter N=5)(
+    input [N-1:0] survivor_path_out ,
+    input [3:0] final_metrics,
+    output reg [N-1:0] decoded_bits
+);
+    reg [N-1:0] survivor_path [3:0];
+    integer i, state;
+    always @(*) begin
+        // Start from the state with minimum final metric
+        
+         survivor_path[0] = survivor_path_out[0];
+         survivor_path[1] = survivor_path_out[1];
+         survivor_path[2] = survivor_path_out[2];
+         survivor_path[3] = survivor_path_out[3];
+         
+        state = 0;
+        for (i = 1; i < 4; i = i + 1) begin
+            if (final_metrics[i] < final_metrics[state])
+                state = i;
+        end
+        for (i = N-1; i >= 0; i = i - 1)
+            decoded_bits[i] = survivor_path[state][i];
+    end
+endmodule
+
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+`timescale 1ns / 1ps
+//////////////////////////////////////////////////////////////////////////////////
+// Company: 
+// Engineer: 
+// 
+// Create Date: 04.08.2025 11:26:36
+// Design Name: 
+// Module Name: VD_BMU
+// Project Name: 
+// Target Devices: 
+// Tool Versions: 
+// Description: 
+// 
+// Dependencies: 
+// 
+// Revision:
+// Revision 0.01 - File Created
+// Additional Comments:
+// 
+//////////////////////////////////////////////////////////////////////////////////
+
+
+module BMU(
+    input [1:0] rcv_sym,
+    input [1:0] expected_sym,
+    output reg [1:0] metric
+);
+    always @(*) begin
+        metric = (rcv_sym[1] ^ expected_sym[1]) + (rcv_sym[0] ^ expected_sym[0]);
+    end
+endmodule
+
+
+
+
+
+
+
+//////////////////////////////////////////////////////////////////////////
+
+
+`timescale 1ns/1ps
+
+module viterbi_tb;
+
+    reg clk;
+    reg rst;
+    reg [9:0] input_bits;
+    wire [4:0] decoded_bits;
+
+    // Instantiate the Viterbi top module
+    viterbi_top uut (
+        .clk(clk),
+        .rst(rst),
+        .input_bits(input_bits),
+        .decoded_bits(decoded_bits)
+    );
+
+    // Clock generator: 10ns period
+    initial begin
+        clk = 0;
+        forever #5 clk = ~clk;
+    end
+
+    initial begin
+        // Dump waveform (optional, for simulation)
+        $dumpfile("viterbi_tb.vcd");
+        $dumpvars(0, viterbi_tb);
+
+        // Initialize
+        rst = 1;
+        input_bits = 10'b0;
+        #10;
+
+        // Apply reset
+        rst = 0;
+
+        // Apply input: 5 symbols: 11 00 10 01 11
+        // => bits = 2'b11, 2'b00, 2'b10, 2'b01, 2'b11
+        // => total: 10'b1100100111
+        input_bits = 10'b0101111111;
+        #100;
+
+        // Show result
+        $display("Input Symbols = %b", input_bits);
+        $display("Decoded Bits  = %b", decoded_bits);
+
+        // Finish
+        #10;
+        $finish;
+    end
+
+endmodule
+////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+`timescale 1ns / 1ps
+
+
+module PMU #(parameter N=5)(
+    input clk,
+    input rst,
+    input [3:0] path_select,  // One bit per state
+    output reg [N-1:0] survivor_path_out
+);
+    reg [N-1:0]survivor_path[3:0];
+    integer i;
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            for (i = 0; i < 4; i = i + 1)
+                survivor_path[i] <= 0;
+        end else begin
+            for (i = 0; i < 4; i = i + 1)
+                survivor_path[i] <= {survivor_path[i][N-2:0], path_select[i]};
+        end
+        survivor_path_out = {survivor_path[0],survivor_path[1],survivor_path[2],survivor_path[3]};
+    end
+endmodule
