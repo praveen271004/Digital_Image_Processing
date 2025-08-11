@@ -1,0 +1,394 @@
+`timescale 1ns/1ps
+// -----------------------------------------------------------------------------
+// Viterbi (K=3, rate 1/2, (7,5)_oct) - 8 symbols, combinational, synthesizable
+// Input:  16-bit coded stream -> 8 symbols (2 bits each), MSB-first
+// Output: corrected coded bits along best path (16b) + decoded bits (8b)
+// -----------------------------------------------------------------------------
+module viterbi_top (
+    input  wire [15:0] input_bits,      // [15:14]=sym0, [13:12]=sym1, ..., [1:0]=sym7
+    output wire [15:0] corrected_bits,  // best-path coded bits (2 per symbol)
+    output wire [7:0]  decoded_bits     // best-path decoded info bits (1 per symbol)
+);
+    // ---------------- Parameters (K=3 => 4 states) ----------------
+    localparam integer K         = 3;
+    localparam integer N_STATES  = 4;
+    localparam integer PM_W      = 6;   // path metric width (max 2*8=16 fits in 5b; use 6b margin)
+
+    // Convolutional code polynomials (newest bit at MSB)
+    localparam [K-1:0] G0 = 3'b111; // 7_oct
+    localparam [K-1:0] G1 = 3'b101; // 5_oct
+
+    // ---------------- Slice input into 8 symbols (2 bits each) ----------------
+    wire [1:0] sym  [0:7];
+    assign sym[0] = input_bits[15:14];
+    assign sym[1] = input_bits[13:12];
+    assign sym[2] = input_bits[11:10];
+    assign sym[3] = input_bits[9:8];
+    assign sym[4] = input_bits[7:6];
+    assign sym[5] = input_bits[5:4];
+    assign sym[6] = input_bits[3:2];
+    assign sym[7] = input_bits[1:0];
+
+    // ---------------- Branch metrics for each time and each next-state/branch ----------
+    // For each time t and next-state s, we evaluate two incoming branches:
+    //   p0 (u=0) and p1 (u=1). We'll compute expected encoder outputs per branch.
+    // We'll also run ACSU to get new path metrics and a decision (0=p0, 1=p1).
+    // Trellis relations (K=3):
+    //   next state s[1:0] = {u, prev_state[1]}
+    //   p0 = (s >> 1)             with u=0
+    //   p1 = (s >> 1) | 2'b10     with u=1
+    // Expected outputs from shift register sr = {u, prev_state}
+    function [1:0] enc2;
+        input [K-1:0] sr;
+        begin
+            enc2[0] = ^(sr & G0); // r0
+            enc2[1] = ^(sr & G1); // r1
+        end
+    endfunction
+
+    // Path metrics through time: pm[t][s], t=0..8
+    wire [PM_W-1:0] pm      [0:8][0:N_STATES-1];
+    // Decisions through time: d[t][s] = 0->from p0(u=0), 1->from p1(u=1)
+    wire            dec     [1:8][0:N_STATES-1];
+
+    // Initial metrics (t=0): assume start in state 0
+    assign pm[0][0] = {PM_W{1'b0}};
+    assign pm[0][1] = {PM_W{1'b1}}; // large
+    assign pm[0][2] = {PM_W{1'b1}};
+    assign pm[0][3] = {PM_W{1'b1}};
+
+    genvar t, s;
+    generate
+        for (t = 1; t <= 8; t = t + 1) begin: TIME
+            for (s = 0; s < N_STATES; s = s + 1) begin: STATE
+                wire [1:0] y_p0, y_p1;
+                wire [1:0] bm0, bm1;
+                wire [PM_W-1:0] pm0_in, pm1_in;
+                wire [PM_W-1:0] pm_out;
+                wire sel;
+
+                // predecessors
+                wire [1:0] p0 = (s >> 1);
+                wire [1:0] p1 = (s >> 1) | 2'b10;
+
+                // shift-register snapshots
+                wire [K-1:0] sr0 = {1'b0, p0};
+                wire [K-1:0] sr1 = {1'b1, p1};
+
+                assign y_p0 = enc2(sr0);
+                assign y_p1 = enc2(sr1);
+
+                // Branch metric (Hamming distance on hard 2-bit symbol)
+                bmu u_bmu0 (.rcv_sym(sym[t-1]), .expected_sym(y_p0), .metric(bm0));
+                bmu u_bmu1 (.rcv_sym(sym[t-1]), .expected_sym(y_p1), .metric(bm1));
+
+                assign pm0_in = pm[t-1][p0];
+                assign pm1_in = pm[t-1][p1];
+
+                // Add-Compare-Select
+                acsu #(.PM_W(PM_W)) u_acsu (
+                    .pm1(pm0_in), .pm2(pm1_in),
+                    .bm1(bm0),    .bm2(bm1),
+                    .new_pm(pm_out),
+                    .sel_path(sel) // 0 => from p0 (u=0), 1 => from p1 (u=1)
+                );
+
+                assign pm[t][s] = pm_out;
+                assign dec[t][s] = sel;
+            end
+        end
+    endgenerate
+
+    // ---------------- Traceback: pick best end-state, walk back 8 steps ----------
+    // We compute decoded bits and corrected coded bits along the survivor path.
+    traceback_k3 u_tb (
+        .pm_final0(pm[8][0]),
+        .pm_final1(pm[8][1]),
+        .pm_final2(pm[8][2]),
+        .pm_final3(pm[8][3]),
+        .dec_t1(dec[1][0]), .dec_t1_s1(dec[1][1]), .dec_t1_s2(dec[1][2]), .dec_t1_s3(dec[1][3]),
+        .dec_t2(dec[2][0]), .dec_t2_s1(dec[2][1]), .dec_t2_s2(dec[2][2]), .dec_t2_s3(dec[2][3]),
+        .dec_t3(dec[3][0]), .dec_t3_s1(dec[3][1]), .dec_t3_s2(dec[3][2]), .dec_t3_s3(dec[3][3]),
+        .dec_t4(dec[4][0]), .dec_t4_s1(dec[4][1]), .dec_t4_s2(dec[4][2]), .dec_t4_s3(dec[4][3]),
+        .dec_t5(dec[5][0]), .dec_t5_s1(dec[5][1]), .dec_t5_s2(dec[5][2]), .dec_t5_s3(dec[5][3]),
+        .dec_t6(dec[6][0]), .dec_t6_s1(dec[6][1]), .dec_t6_s2(dec[6][2]), .dec_t6_s3(dec[6][3]),
+        .dec_t7(dec[7][0]), .dec_t7_s1(dec[7][1]), .dec_t7_s2(dec[7][2]), .dec_t7_s3(dec[7][3]),
+        .dec_t8(dec[8][0]), .dec_t8_s1(dec[8][1]), .dec_t8_s2(dec[8][2]), .dec_t8_s3(dec[8][3]),
+        .corrected_bits(corrected_bits),
+        .decoded_bits(decoded_bits)
+    );
+
+endmodule
+
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+`timescale 1ns/1ps
+module bmu (
+    input  wire [1:0] rcv_sym,
+    input  wire [1:0] expected_sym,
+    output wire [1:0] metric          // Hamming distance 0..2
+);
+    wire d0 = rcv_sym[0] ^ expected_sym[0];
+    wire d1 = rcv_sym[1] ^ expected_sym[1];
+    assign metric = d0 + d1; // synthesizes to adders/XORs
+endmodule
+
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+`timescale 1ns/1ps
+
+
+
+module acsu #(parameter PM_W = 6) (
+    input  wire [PM_W-1:0] pm1, pm2,   // incoming path metrics from p0, p1
+    input  wire [1:0]      bm1, bm2,   // branch metrics for those branches
+    output reg  [PM_W-1:0] new_pm,     // selected new path metric
+    output reg             sel_path    // 0 -> chose p0 (u=0), 1 -> chose p1 (u=1)
+);
+    reg [PM_W-1:0] total1, total2;
+    always @* begin
+        total1  = pm1 + bm1;
+        total2  = pm2 + bm2;
+        if (total1 <= total2) begin
+            new_pm   = total1;
+            sel_path = 1'b0;
+        end else begin
+            new_pm   = total2;
+            sel_path = 1'b1;
+        end
+    end
+endmodule
+
+
+
+/////////////////////////////////////////////////////////////////////////////
+
+
+`timescale 1ns/1ps
+module traceback_k3 (
+    input  wire [5:0] pm_final0, pm_final1, pm_final2, pm_final3,
+
+    // decisions at each time for each next-state (flattened as explicit ports)
+    input  wire dec_t1,    input wire dec_t1_s1, input wire dec_t1_s2, input wire dec_t1_s3,
+    input  wire dec_t2,    input wire dec_t2_s1, input wire dec_t2_s2, input wire dec_t2_s3,
+    input  wire dec_t3,    input wire dec_t3_s1, input wire dec_t3_s2, input wire dec_t3_s3,
+    input  wire dec_t4,    input wire dec_t4_s1, input wire dec_t4_s2, input wire dec_t4_s3,
+    input  wire dec_t5,    input wire dec_t5_s1, input wire dec_t5_s2, input wire dec_t5_s3,
+    input  wire dec_t6,    input wire dec_t6_s1, input wire dec_t6_s2, input wire dec_t6_s3,
+    input  wire dec_t7,    input wire dec_t7_s1, input wire dec_t7_s2, input wire dec_t7_s3,
+    input  wire dec_t8,    input wire dec_t8_s1, input wire dec_t8_s2, input wire dec_t8_s3,
+
+    output reg  [15:0] corrected_bits,  // MSB-first: sym0..sym7
+    output reg  [7:0]  decoded_bits     // MSB-first: bit0..bit7
+);
+    // Map decisions into arrays for easier indexing
+    wire dec_arr [1:8][0:3];
+    assign dec_arr[1][0]=dec_t1;    assign dec_arr[1][1]=dec_t1_s1; assign dec_arr[1][2]=dec_t1_s2; assign dec_arr[1][3]=dec_t1_s3;
+    assign dec_arr[2][0]=dec_t2;    assign dec_arr[2][1]=dec_t2_s1; assign dec_arr[2][2]=dec_t2_s2; assign dec_arr[2][3]=dec_t2_s3;
+    assign dec_arr[3][0]=dec_t3;    assign dec_arr[3][1]=dec_t3_s1; assign dec_arr[3][2]=dec_t3_s2; assign dec_arr[3][3]=dec_t3_s3;
+    assign dec_arr[4][0]=dec_t4;    assign dec_arr[4][1]=dec_t4_s1; assign dec_arr[4][2]=dec_t4_s2; assign dec_arr[4][3]=dec_t4_s3;
+    assign dec_arr[5][0]=dec_t5;    assign dec_arr[5][1]=dec_t5_s1; assign dec_arr[5][2]=dec_t5_s2; assign dec_arr[5][3]=dec_t5_s3;
+    assign dec_arr[6][0]=dec_t6;    assign dec_arr[6][1]=dec_t6_s1; assign dec_arr[6][2]=dec_t6_s2; assign dec_arr[6][3]=dec_t6_s3;
+    assign dec_arr[7][0]=dec_t7;    assign dec_arr[7][1]=dec_t7_s1; assign dec_arr[7][2]=dec_t7_s2; assign dec_arr[7][3]=dec_t7_s3;
+    assign dec_arr[8][0]=dec_t8;    assign dec_arr[8][1]=dec_t8_s1; assign dec_arr[8][2]=dec_t8_s2; assign dec_arr[8][3]=dec_t8_s3;
+
+    // Encoder function reused (K=3, (7,5)_oct)
+    function [1:0] enc2;
+        input [2:0] sr;
+        begin
+            enc2[0] = ^(sr & 3'b111); // 7_oct
+            enc2[1] = ^(sr & 3'b101); // 5_oct
+        end
+    endfunction
+
+    integer t;
+    reg [1:0] s_now;   // current next-state while tracing back
+    reg       u_bit;   // decision bit at step
+    reg [1:0] p0, p1, prev_state;
+    reg [2:0] sr;
+    reg [1:0] y;
+
+    // Choose best final state (argmin of 4)
+    wire [1:0] best_final_state = (pm_final1 < pm_final0) ?
+                                  ((pm_final1 < pm_final2) ?
+                                    ((pm_final1 < pm_final3) ? 2'd1 : 2'd3) :
+                                    ((pm_final2 < pm_final3) ? 2'd2 : 2'd3)) :
+                                  ((pm_final0 < pm_final2) ?
+                                    ((pm_final0 < pm_final3) ? 2'd0 : 2'd3) :
+                                    ((pm_final2 < pm_final3) ? 2'd2 : 2'd3));
+
+    always @* begin
+        corrected_bits = 16'h0000;
+        decoded_bits   = 8'h00;
+
+        s_now = best_final_state;
+
+        // Walk from t=8 down to t=1. We fill outputs MSB-first (t=1 at MSB).
+        for (t = 8; t >= 1; t = t - 1) begin
+            // Which predecessor did we come from at time t->s_now?
+            u_bit = dec_arr[t][s_now];  // 0 -> from p0 (u=0), 1 -> from p1 (u=1)
+
+            // Derive predecessor state and encoder outputs for that transition
+            p0 = (s_now >> 1);
+            p1 = (s_now >> 1) | 2'b10;
+            prev_state = u_bit ? p1 : p0;
+
+            sr = {u_bit, prev_state}; // shift register snapshot at that step
+            y  = enc2(sr);            // corrected coded symbol on survivor
+
+            // Place bits: symbol index idx = t-1; MSB-first packing
+            corrected_bits[ (2*(t-1)) +: 2 ] = y;  // packs LSB-first within each pair
+            decoded_bits  [ (t-1) ]           = u_bit;
+
+            // Move to predecessor for next step back
+            s_now = prev_state;
+        end
+    end
+endmodule
+
+
+//////////////////////////////////////////////////////////////////////////////////////
+
+
+`timescale 1ns/1ps
+
+module viterbi_top_tb;
+
+    // DUT I/O
+    reg  [15:0] input_bits;
+    wire [15:0] corrected_bits;
+    wire [7:0]  decoded_bits;
+
+    // Instantiate DUT (combinational)
+    viterbi_top dut (
+        .input_bits     (input_bits),
+        .corrected_bits (corrected_bits),
+        .decoded_bits   (decoded_bits)
+    );
+
+    // -------------------------------------------------------------------------
+    // K=3, (7,5)_oct encoder helpers (match DUT's code)
+    // -------------------------------------------------------------------------
+    function [1:0] enc2_k3;
+        input [2:0] sr;                // shift register {u, s1, s0}
+        begin
+            enc2_k3[0] = ^(sr & 3'b111); // 7_oct
+            enc2_k3[1] = ^(sr & 3'b101); // 5_oct
+        end
+    endfunction
+
+    // Encode 8 info bits (msg[0] = earliest bit) -> 16 coded bits (MSB-first pairs)
+    task encode_8bits;
+        input  [7:0]  msg;
+        output [15:0] enc;
+        integer k;
+        reg [2:0] sr;
+        reg [1:0] y;
+        integer p; // pair index 7..0 (MSB..LSB)
+        begin
+            sr  = 3'b000;
+            enc = 16'h0000;
+            for (k = 0; k < 8; k = k + 1) begin
+                sr = {msg[k], sr[2:1]};     // push next info bit
+                y  = enc2_k3(sr);
+                p  = 7 - k;                 // sym0 -> [15:14], sym7 -> [1:0]
+                enc[ (2*p) +: 2 ] = y;
+            end
+        end
+    endtask
+
+    // Re-encode decoded bits to get expected corrected coded bits (same packing)
+    task recode_expected_corrected;
+        input  [7:0]  dec;
+        output [15:0] corr;
+        begin
+            encode_8bits(dec, corr);
+        end
+    endtask
+
+    // Simple checker
+    task check_result;
+        input [7:0]  msg;
+        input [15:0] noisy_in;
+        reg   [15:0] enc_expected;
+        reg   [15:0] corr_expected;
+        integer i, errors;
+        begin
+            // Drive DUT
+            input_bits = noisy_in;
+            #1; // settle combinationally
+
+            // Expected decoded bits (DUT maps earliest->bit0, last->bit7)
+            errors = 0;
+            for (i = 0; i < 8; i = i + 1) begin
+                if (decoded_bits[i] !== msg[i]) begin
+                    $display("DECODING MISMATCH at bit %0d: got=%0d exp=%0d",
+                             i, decoded_bits[i], msg[i]);
+                    errors = errors + 1;
+                end
+            end
+
+            // Expected corrected coded stream = re-encode decoded bits
+            recode_expected_corrected(decoded_bits, corr_expected);
+            if (corrected_bits !== corr_expected) begin
+                $display("CORRECTED BITS MISMATCH:\n got=%016b\n exp=%016b",
+                         corrected_bits, corr_expected);
+                errors = errors + 1;
+            end
+
+            if (errors == 0)
+                $display("PASS  msg=%08b  input=%016b  decoded=%08b  corrected=%016b",
+                         msg, noisy_in, decoded_bits, corrected_bits);
+            else
+                $display("FAIL  msg=%08b  input=%016b  decoded=%08b  corrected=%016b  (errors=%0d)",
+                         msg, noisy_in, decoded_bits, corrected_bits, errors);
+        end
+    endtask
+
+    // -------------------------------------------------------------------------
+    // Test vectors
+    // -------------------------------------------------------------------------
+    reg [7:0]  msg;
+    reg [15:0] enc_clean;
+    reg [15:0] enc_noisy;
+
+    initial begin
+        // Test 1: clean path (no errors)
+        msg = 8'b0101_1001;              // msg[0]=LSB (earliest), msg[7]=MSB (latest)
+        encode_8bits(msg, enc_clean);
+        enc_noisy = enc_clean;           // no errors
+        check_result(msg, enc_noisy);
+
+        // Test 2: flip one coded bit
+        enc_noisy = enc_clean ^ 16'h0004; // flip bit[2]
+        check_result(msg, enc_noisy);
+
+        // Test 3: flip an entire symbol (2 bits)
+        enc_noisy = enc_clean ^ 16'b0000_0000_0000_0011; // flip LSB symbol
+        check_result(msg, enc_noisy);
+
+        // Test 4: another message
+        msg = 8'b1110_0011;
+        encode_8bits(msg, enc_clean);
+        enc_noisy = enc_clean ^ 16'h00C0; // flip one middle symbol
+        check_result(msg, enc_noisy);
+
+        $display("All tests done.");
+        $finish;
+    end
+
+    // Optional waveform
+    initial begin
+        $dumpfile("viterbi_k3_tb.vcd");
+        $dumpvars(0, viterbi_top_tb);
+    end
+
+endmodule
