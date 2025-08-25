@@ -1,0 +1,147 @@
+Ah, I see 👀 — this looks like you wrote down a list of interview questions/discussion points you faced (probably for a hardware design/RTL verification/ASIC interview). These are great questions, and they are all centered around FIFO design, CDC (clock domain crossing), resets, timing analysis, and general RTL practices. Let me go through each of your bullet points with explanations, reasoning, and what the interviewer was probably looking for.
+
+🔹 1. Async FIFO: minimum depth requirement
+
+In an asynchronous FIFO, a write takes some time before the write pointer is safely synchronized into the read domain, and vice versa.
+
+During this round-trip, data could already be written but not yet visible to the other side.
+
+Rule of thumb: minimum depth should cover the pointer synchronization delay (usually 2 synchronizer flops per domain), i.e. at least 4 entries deep.
+
+In practice, designers choose depths comfortably larger than that, usually a power of 2 (8, 16, …).
+
+🔹 2. Async FIFO: timing constraint on pointers (false path)
+
+The write pointer is sampled in the read domain (through synchronizers) → and vice versa.
+
+These paths are asynchronous → must be declared false paths in STA.
+
+However, the constraint is not “do nothing” — we must ensure no glitching and monotonic pointer transitions.
+
+That’s why we use Gray code counters, where only 1 bit changes per increment → prevents metastability from creating a multi-bit error.
+
+🔹 3. Async FIFO: timing issue on read pointer → data selection → read flop
+
+Common bug: directly using the asynchronous read pointer to index memory before synchronization.
+
+This creates a false combinational path from the write domain into the read domain → not safe.
+
+Correct fix: memory is read synchronously in the read domain (pointer is synchronized first).
+
+🔹 4. Async FIFO: avoiding extra clock delay in Gray counter
+
+Normally, you use a Gray counter for CDC + decode it back.
+
+Problem: this can cost an extra cycle.
+
+Trick: keep a binary counter locally (fast for indexing memory) and a Gray-coded copy only for synchronization.
+
+You mentioned this — yes, it’s a known optimization, though not everyone uses it.
+
+🔹 5. Async reset vs. sync reset
+
+Async reset: asserted asynchronously (good for immediate reset during power-up), but deassertion must be synchronized to avoid metastability.
+
+Timing analysis: async resets are usually marked as false paths, but recovery/removal checks must still be satisfied.
+
+Sync reset: reset logic happens inside clock domain, easier for STA but requires clock to be present.
+
+🔹 6. FIFO with pipelined writes → avoid overflow
+
+If writes are pipelined, multiple writes may be “in flight” before full is updated.
+
+To avoid overflow: use a conservative full flag (assert full earlier, leaving 1–2 slots unused).
+
+This ensures safety even if control takes time to propagate.
+
+🔹 7. Pipelining cycles with FIFO on a bus
+
+Use FIFO as elastic buffer on the bus → allows decoupling of producer/consumer timing.
+
+Helps achieve desired throughput or latency hiding.
+
+🔹 8. Using a latch to solve hold violation
+
+Large hold time violations can be fixed using a level-sensitive latch (transparent during half-cycle).
+
+This gives “borrowing” of hold slack.
+
+Risk: need careful STA constraints to avoid introducing races.
+
+🔹 9. Timing across power domain with level shifter
+
+Paths that cross power domains need level shifters + special timing constraints.
+
+If the source domain can be shut off, need isolation cells too.
+
+STA: usually treat as CDC + add exceptions.
+
+🔹 10. Script to traverse a tree structure
+
+Recursion (DFS or BFS) is the standard approach.
+
+Many hardware engineers are expected to handle scripting (Python/Tcl/Perl).
+
+🔹 11. Detect flaws in given RTL
+
+Reset missing → registers come up X.
+
+Clock domain crossing → pulses may be lost if not stretched or handshaken.
+
+Interviewer probably tested your CDC awareness.
+
+🔹 12. FIFO for widening (tricky usage)
+
+Example: store width=8 data but read them out as width=32 (aggregate multiple writes).
+
+Achieved by using two pointers with different stride or grouping.
+
+🔹 13. Using double pointers
+
+Example: one pointer for normal operation, another for debug, test, or bypass.
+
+Sometimes used in re-order buffers, elastic buffers.
+
+🔹 14. Reading a waveform
+
+Interviewers test whether you can “see” signal relationships.
+
+Edge detect, pipeline delay, XOR/AND patterns are common traps.
+
+🔹 15. Design a block with control & expected outputs
+
+This is about comprehension under pressure. They check if you structure code cleanly, handle reset, and write synthesizable RTL.
+
+Typos are fine, but conceptual mistakes are not.
+
+🔹 16. FIFO with non-power-of-2 depth
+
+If depth is not 2ⁿ, Gray codes don’t naturally wrap.
+
+Solutions:
+
+Pad memory to next power of 2 but only use part.
+
+Use binary counters with extra logic to detect wrap.
+
+Interviewer probably wanted to see if you can generalize.
+
+🔹 17. Sequence detector
+
+Classic FSM design problem. Checks FSM design ability.
+
+🔹 18. Elastic buffer, de-skew buffer, re-ordering buffer
+
+These are more system-level buffer types:
+
+Elastic buffer: absorbs clock phase/timing differences.
+
+De-skew buffer: aligns signals that arrive with different delays.
+
+Re-order buffer (ROB): keeps track of instructions/data and commits them in order.
+
+Even without prior knowledge, common sense + FIFO knowledge helps.
+
+✅ Takeaway: The interviewer wasn’t just testing syntax — they were probing your understanding of CDC, FIFOs, timing, and practical RTL pitfalls. That’s exactly what matters in ASIC/FPGA design interviews.
+
+Would you like me to draw a small diagram showing how the write pointer synchronization / read pointer synchronization creates that minimum FIFO depth requirement (your Q1)? It’s often clearer with a timing diagram.
