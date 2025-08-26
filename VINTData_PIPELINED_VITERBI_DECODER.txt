@@ -1,0 +1,429 @@
+`timescale 1ns/1ps
+module viterbi_top_pipelined (
+    input  wire        clk,
+    input  wire        rst,
+    input  wire [15:0] input_bits,      // 8 symbols, MSB-first
+    output wire [15:0] corrected_bits,  // best-path coded bits
+    output wire [7:0]  decoded_bits     // best-path decoded bits
+);
+
+    localparam K = 3;
+    localparam N_STATES = 4;
+    localparam PM_W = 6;
+
+    // Slice input into symbols
+    wire [1:0] sym[0:7];
+    assign sym[0] = input_bits[15:14];
+    assign sym[1] = input_bits[13:12];
+    assign sym[2] = input_bits[11:10];
+    assign sym[3] = input_bits[9:8];
+    assign sym[4] = input_bits[7:6];
+    assign sym[5] = input_bits[5:4];
+    assign sym[6] = input_bits[3:2];
+    assign sym[7] = input_bits[1:0];
+
+    // Encoder function
+    function [1:0] enc2;
+        input [K-1:0] sr;
+        begin
+            enc2[0] = ^(sr & 3'b111); // 7_oct
+            enc2[1] = ^(sr & 3'b101); // 5_oct
+        end
+    endfunction
+
+    // Pipeline registers for path metrics and decisions
+    reg [PM_W-1:0] pm [0:8][0:N_STATES-1];
+    reg dec_reg [1:8][0:N_STATES-1];
+
+    // Initialize path metrics
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            pm[0][0] <= 0;
+            pm[0][1] <= {PM_W{1'b1}};
+            pm[0][2] <= {PM_W{1'b1}};
+            pm[0][3] <= {PM_W{1'b1}};
+        end
+    end
+
+    genvar t, s;
+    generate
+        for (t = 1; t <= 8; t = t + 1) begin: TIME
+            for (s = 0; s < N_STATES; s = s + 1) begin: STATE
+                wire [1:0] y_p0 = enc2({1'b0, s>>1});
+                wire [1:0] y_p1 = enc2({1'b1, (s>>1)|2'b10});
+                wire [1:0] bm0, bm1;
+                wire [PM_W-1:0] pm0_in = pm[t-1][s>>1];
+                wire [PM_W-1:0] pm1_in = pm[t-1][(s>>1)|2'b10];
+                wire [PM_W-1:0] pm_out;
+                wire sel;
+
+                // Pipelined BMU
+                bmu u_bmu0 (.clk(clk), .rst(rst), .rcv_sym(sym[t-1]), .expected_sym(y_p0), .metric(bm0));
+                bmu u_bmu1 (.clk(clk), .rst(rst), .rcv_sym(sym[t-1]), .expected_sym(y_p1), .metric(bm1));
+
+                // Pipelined ACSU
+                acsu #(.PM_W(PM_W)) u_acsu (
+                    .clk(clk), .rst(rst),
+                    .pm1(pm0_in), .pm2(pm1_in),
+                    .bm1(bm0),    .bm2(bm1),
+                    .new_pm(pm_out),
+                    .sel_path(sel)
+                );
+
+                // Register output
+                always @(posedge clk) begin
+                    pm[t][s] <= pm_out;
+                    dec_reg[t][s] <= sel;
+                end
+            end
+        end
+    endgenerate
+
+    // Pipelined traceback
+    traceback_k3 u_tb (
+        .clk(clk), .rst(rst),
+        .pm_final0(pm[8][0]), .pm_final1(pm[8][1]),
+        .pm_final2(pm[8][2]), .pm_final3(pm[8][3]),
+        .dec_t1(dec_reg[1][0]), .dec_t1_s1(dec_reg[1][1]),
+        .dec_t1_s2(dec_reg[1][2]), .dec_t1_s3(dec_reg[1][3]),
+        .dec_t2(dec_reg[2][0]), .dec_t2_s1(dec_reg[2][1]),
+        .dec_t2_s2(dec_reg[2][2]), .dec_t2_s3(dec_reg[2][3]),
+        .dec_t3(dec_reg[3][0]), .dec_t3_s1(dec_reg[3][1]),
+        .dec_t3_s2(dec_reg[3][2]), .dec_t3_s3(dec_reg[3][3]),
+        .dec_t4(dec_reg[4][0]), .dec_t4_s1(dec_reg[4][1]),
+        .dec_t4_s2(dec_reg[4][2]), .dec_t4_s3(dec_reg[4][3]),
+        .dec_t5(dec_reg[5][0]), .dec_t5_s1(dec_reg[5][1]),
+        .dec_t5_s2(dec_reg[5][2]), .dec_t5_s3(dec_reg[5][3]),
+        .dec_t6(dec_reg[6][0]), .dec_t6_s1(dec_reg[6][1]),
+        .dec_t6_s2(dec_reg[6][2]), .dec_t6_s3(dec_reg[6][3]),
+        .dec_t7(dec_reg[7][0]), .dec_t7_s1(dec_reg[7][1]),
+        .dec_t7_s2(dec_reg[7][2]), .dec_t7_s3(dec_reg[7][3]),
+        .dec_t8(dec_reg[8][0]), .dec_t8_s1(dec_reg[8][1]),
+        .dec_t8_s2(dec_reg[8][2]), .dec_t8_s3(dec_reg[8][3]),
+        .corrected_bits(corrected_bits),
+        .decoded_bits(decoded_bits)
+    );
+
+endmodule
+
+
+
+
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+`timescale 1ns/1ps
+
+
+module bmu (
+    input  wire        clk,
+    input  wire        rst,
+    input  wire [1:0] rcv_sym,
+    input  wire [1:0] expected_sym,
+    output reg [1:0] metric          // Hamming distance 0..2
+);
+
+
+   reg d0_s1,d1_s1;
+   
+   
+   reg[1:0] metric_s2;
+   
+   always @(posedge clk or posedge rst) begin
+   
+   if (rst)begin
+        
+           d0_s1 <= 0;
+           d1_s1 <= 0;
+         
+         end
+          else begin
+    d0_s1 = rcv_sym[0] ^ expected_sym[0];
+    d1_s1 = rcv_sym[1] ^ expected_sym[1];
+        end
+    end
+    
+  always @(posedge clk or posedge rst) begin
+  
+       if (rst)begin
+            metric_s2 <= 0;
+            metric <= 0;
+            end else begin
+            
+            metric_s2 <= d0_s1 + d1_s1;
+            metric <= metric_s2;
+            
+            end
+         end
+     
+   // assign metric = d0 + d1; // synthesizes to adders/XORs
+endmodule
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+
+`timescale 1ns/1ps
+
+
+
+module acsu #(parameter PM_W = 6) (
+    input  wire clk,
+    input  wire rst,
+    input  wire [PM_W-1:0] pm1, pm2,   // incoming path metrics from p0, p1
+    input  wire [1:0]      bm1, bm2,   // branch metrics for those branches
+    output reg  [PM_W-1:0] new_pm,     // selected new path metric
+    output reg             sel_path    // 0 -> chose p0 (u=0), 1 -> chose p1 (u=1)
+);
+
+
+
+
+    reg [PM_W-1:0] total1_s1, total2_s1;
+    
+    //stage 1
+    
+  always @(posedge clk or posedge rst) begin
+      
+      if(rst)begin
+        total1_s1  <= 0;
+        total2_s1  <= 0;
+        
+        end else begin
+        
+        
+          total1_s1 <= pm1 + bm1;
+          total2_s1 <= pm2 + bm2;
+          
+              end
+           end
+           
+           
+        // stage 2
+        
+        
+         always @(posedge clk or posedge rst) begin
+               
+               
+          if(rst)begin 
+          
+            new_pm   <= 0;
+            sel_path <= 0;
+            
+           end else begin
+            
+             if(total1_s1 <= total2_s1)begin 
+              
+                      new_pm   = total1_s1;
+                      sel_path = 1'b0;
+                      
+                    end else begin
+                    
+                      new_pm   = total2_s1;
+                      sel_path = 1'b1;
+                           
+                     end
+        end
+    end
+    
+endmodule
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+
+
+`timescale 1ns/1ps
+module traceback_k3 (
+    input  wire       clk,
+    input  wire       rst,
+    input  wire [5:0] pm_final0, pm_final1, pm_final2, pm_final3,
+
+    // decisions at each time for each next-state (flattened as explicit ports)
+    input  wire dec_t1,    input wire dec_t1_s1, input wire dec_t1_s2, input wire dec_t1_s3,
+    input  wire dec_t2,    input wire dec_t2_s1, input wire dec_t2_s2, input wire dec_t2_s3,
+    input  wire dec_t3,    input wire dec_t3_s1, input wire dec_t3_s2, input wire dec_t3_s3,
+    input  wire dec_t4,    input wire dec_t4_s1, input wire dec_t4_s2, input wire dec_t4_s3,
+    input  wire dec_t5,    input wire dec_t5_s1, input wire dec_t5_s2, input wire dec_t5_s3,
+    input  wire dec_t6,    input wire dec_t6_s1, input wire dec_t6_s2, input wire dec_t6_s3,
+    input  wire dec_t7,    input wire dec_t7_s1, input wire dec_t7_s2, input wire dec_t7_s3,
+    input  wire dec_t8,    input wire dec_t8_s1, input wire dec_t8_s2, input wire dec_t8_s3,
+
+    output reg  [15:0] corrected_bits,  // MSB-first: sym0..sym7
+    output reg  [7:0]  decoded_bits     // MSB-first: bit0..bit7
+);
+    // Map decisions into arrays for easier indexing
+    wire dec_arr [1:8][0:3];
+    assign dec_arr[1][0]=dec_t1;    assign dec_arr[1][1]=dec_t1_s1; assign dec_arr[1][2]=dec_t1_s2; assign dec_arr[1][3]=dec_t1_s3;
+    assign dec_arr[2][0]=dec_t2;    assign dec_arr[2][1]=dec_t2_s1; assign dec_arr[2][2]=dec_t2_s2; assign dec_arr[2][3]=dec_t2_s3;
+    assign dec_arr[3][0]=dec_t3;    assign dec_arr[3][1]=dec_t3_s1; assign dec_arr[3][2]=dec_t3_s2; assign dec_arr[3][3]=dec_t3_s3;
+    assign dec_arr[4][0]=dec_t4;    assign dec_arr[4][1]=dec_t4_s1; assign dec_arr[4][2]=dec_t4_s2; assign dec_arr[4][3]=dec_t4_s3;
+    assign dec_arr[5][0]=dec_t5;    assign dec_arr[5][1]=dec_t5_s1; assign dec_arr[5][2]=dec_t5_s2; assign dec_arr[5][3]=dec_t5_s3;
+    assign dec_arr[6][0]=dec_t6;    assign dec_arr[6][1]=dec_t6_s1; assign dec_arr[6][2]=dec_t6_s2; assign dec_arr[6][3]=dec_t6_s3;
+    assign dec_arr[7][0]=dec_t7;    assign dec_arr[7][1]=dec_t7_s1; assign dec_arr[7][2]=dec_t7_s2; assign dec_arr[7][3]=dec_t7_s3;
+    assign dec_arr[8][0]=dec_t8;    assign dec_arr[8][1]=dec_t8_s1; assign dec_arr[8][2]=dec_t8_s2; assign dec_arr[8][3]=dec_t8_s3;
+
+    // Encoder function reused (K=3, (7,5)_oct)
+    function [1:0] enc2;
+        input [2:0] sr;
+        begin
+            enc2[0] = ^(sr & 3'b111); // 7_oct
+            enc2[1] = ^(sr & 3'b101); // 5_oct
+        end
+    endfunction
+ 
+    // Registers for pipeline stages
+    reg [1:0] s_now [0:8];       // current state at each stage
+    reg       u_bit [0:8];       // decision bit at each stage
+    reg [1:0] prev_state [0:8];  // previous state at each stage
+    reg [15:0] corrected_bits_stage [0:8];
+    reg [7:0]  decoded_bits_stage [0:8];
+    
+    integer t;
+    wire [1:0] best_final_state;
+    
+    assign best_final_state = (pm_final1 < pm_final0) ? 
+                              ((pm_final1 < pm_final2) ? ((pm_final1 < pm_final3)? 2'd1 : 2'd3) :
+                                                        ((pm_final2 < pm_final3)? 2'd2 : 2'd3)) :
+                              ((pm_final0 < pm_final2) ? ((pm_final0 < pm_final3)? 2'd0 : 2'd3) :
+                                                        ((pm_final2 < pm_final3)? 2'd2 : 2'd3));
+    
+    // Stage 0: initialize pipeline with final state
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            s_now[0] <= 0;
+            corrected_bits_stage[0] <= 16'h0;
+            decoded_bits_stage[0] <= 8'h0;
+        end else begin
+            s_now[0] <= best_final_state;
+            corrected_bits_stage[0] <= 16'h0;
+            decoded_bits_stage[0] <= 8'h0;
+        end
+    end
+    
+    // Pipeline stages: t=8 down to t=1
+    genvar i;
+    generate
+        for (i=1; i<=8; i=i+1) begin : tb_stage
+            always @(posedge clk) begin
+                u_bit[i] <= dec_arr[9-i][s_now[i-1]]; // decisions
+                prev_state[i] <= u_bit[i] ? ((s_now[i-1] >> 1) | 2'b10) : (s_now[i-1] >> 1);
+                s_now[i] <= prev_state[i];
+                
+                // Encoder outputs
+                corrected_bits_stage[i] <= corrected_bits_stage[i-1] | 
+                                           (enc2({u_bit[i], prev_state[i]}) << (2*(8-i)));
+                decoded_bits_stage[i]   <= decoded_bits_stage[i-1] | 
+                                           (u_bit[i] << (8-i));
+            end
+        end
+    endgenerate
+    
+    // Output registers
+    always @(posedge clk) begin
+        corrected_bits <= corrected_bits_stage[8];
+        decoded_bits   <= decoded_bits_stage[8];
+    end
+
+endmodule
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+`timescale 1ns/1ps
+module viterbi_top_pipelined_tb;
+
+    reg clk, rst;
+    reg [15:0] input_bits;
+    wire [15:0] corrected_bits;
+    wire [7:0]  decoded_bits;
+    reg [7:0] msg;
+    reg [15:0] enc_clean, enc_noisy;
+   // integer i;
+    // Instantiate DUT
+    viterbi_top_pipelined dut (
+        .clk(clk),
+        .rst(rst),
+        .input_bits(input_bits),
+        .corrected_bits(corrected_bits),
+        .decoded_bits(decoded_bits)
+    );
+
+    // Clock generation
+    initial clk = 0;
+    always #5 clk = ~clk; // 10ns period
+
+    // Reset
+    initial begin
+        rst = 1;
+        #20;
+        rst = 0;
+    end
+
+    // Encoder function
+    function [1:0] enc2_k3;
+        input [2:0] sr;
+        begin
+            enc2_k3[0] = ^(sr & 3'b111);
+            enc2_k3[1] = ^(sr & 3'b101);
+        end
+    endfunction
+
+    // Encode 8 bits -> 16 bits
+    task encode_8bits;
+        input [7:0] msg;
+        output [15:0] enc;
+        integer k;
+        reg [2:0] sr;
+        reg [1:0] y;
+        integer p;
+        begin
+            sr = 3'b000;
+            enc = 16'h0000;
+            for (k = 0; k < 8; k = k + 1) begin
+                sr = {msg[k], sr[2:1]};
+                y  = enc2_k3(sr);
+                p  = 7 - k;
+                enc[(2*p) +: 2] = y;
+            end
+        end
+    endtask
+
+    localparam LATENCY = 12; // pipeline latency in cycles
+
+    // Test sequence
+    initial begin
+ 
+
+        // Test 1: clean
+        msg = 8'b01011001;
+        encode_8bits(msg, enc_clean);
+        enc_noisy = enc_clean;
+        input_bits = enc_noisy;
+        repeat(LATENCY) @(posedge clk);
+        $display("Decoded=%b, Corrected=%b", decoded_bits, corrected_bits);
+
+        // Test 2: flip one bit
+        enc_noisy = enc_clean ^ 16'h0004;
+        input_bits = enc_noisy;
+        repeat(LATENCY) @(posedge clk);
+        $display("Decoded=%b, Corrected=%b", decoded_bits, corrected_bits);
+
+        // Finish
+        #20;
+        $finish;
+    end
+
+endmodule
