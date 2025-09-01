@@ -1,0 +1,586 @@
+
+module top (
+    input wire clk,
+    input wire rst,
+    inout wire sda,
+    input wire scl
+);
+    wire [7:0] data_from_slave;
+    wire matched;
+    wire [6:0] translated_addr;
+
+    parameter VIRTUAL_ADDR = 7'h49;
+    parameter DEVICE1_ADDR = 7'h48;
+    parameter DEVICE2_ADDR = 7'h48;
+
+    i2c_slave u_slave (
+        .clk(clk),
+        .rst(rst),
+        .scl(scl),
+        .sda(sda),
+        .data_out(data_from_slave),
+        .addr_matched(matched),
+        .virtual_addr(VIRTUAL_ADDR)
+    );
+
+    address_translator u_translator (
+        .virtual_addr(VIRTUAL_ADDR),
+        .real_addr_device1(DEVICE1_ADDR),
+        .real_addr_device2(DEVICE2_ADDR),
+        .translated_addr(translated_addr)
+    );
+
+    i2c_master u_master (
+        .clk(clk),
+        .rst(rst),
+        .start(matched),
+        .device_addr(translated_addr),
+        .data_in(data_from_slave),
+        .busy(),
+        .scl(),
+        .sda(sda)
+    );
+endmodule
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+module i2c_slave (
+    input wire scl,
+    inout wire sda,
+    input wire clk,
+    input wire rst,
+    output reg [7:0] data_out,
+    output reg addr_matched,
+    input wire [6:0] virtual_addr
+);
+    // A simple stub; full I2C decoding logic needs to be implemented.
+    // You can replace this with open-source I2C slave code.
+
+    // For simulation/demo: assume address matched on write
+    always @(posedge clk) begin
+        if (rst) begin
+            addr_matched <= 0;
+            data_out <= 8'h00;
+        end else begin
+            // Simulated matching
+            addr_matched <= 1'b1;
+            data_out <= 8'h32;  // dummy data
+        end
+    end
+endmodule
+
+
+
+
+
+
+
+
+
+
+
+
+module i2c_master (
+    input wire clk,
+    input wire rst,
+    input wire start,
+    input wire [6:0] device_addr,
+    input wire [7:0] data_in,
+    output reg busy,
+    output reg scl,
+    inout wire sda
+);
+    // Stub implementation - replace with actual I2C master logic or open-source core
+
+    always @(posedge clk) begin
+        if (rst) begin
+            busy <= 0;
+        end else if (start) begin
+            busy <= 1;
+            // In a real design, initiate I2C transaction to device_addr
+        end else begin
+            busy <= 0;
+        end
+    end
+endmodule
+
+
+
+
+
+
+
+
+
+
+
+module testbench;
+    reg clk = 0;
+    reg rst = 1;
+    
+    reg scl_tb;
+    reg sda_drive;
+    wire sda;
+
+    // Clock generation
+    always #5 clk = ~clk;
+
+ assign sda = sda_drive ? 1'b0 : 1'bz;
+
+
+    top dut (
+        .clk(clk),
+        .rst(rst),
+        .sda(sda),
+        .scl(scl_tb)
+    );
+
+    initial begin
+        $display("Starting test...");
+        #20 rst = 0;
+        
+        
+        #10 sda_drive = 1; scl_tb = 1;
+        #10 sda_drive = 1; scl_tb = 1;
+        #10 sda_drive = 1; scl_tb = 0;
+        #10 sda_drive = 0;
+        #10 scl_tb = 0;
+        
+        send_byte(8'h92);
+        #100;
+        
+        sda_drive = 0; scl_tb = 1;
+        #10 sda_drive = 1;
+        
+        #100
+        
+        
+        $finish;
+    end
+    
+    
+    task send_byte(input [7:0] data);
+      
+      integer i;
+      begin
+          for(i = 7; i >= 0; i = i - 1)begin
+           sda_drive = data[i];
+           #10 scl_tb = 0;
+           #10 scl_tb = 1;
+           #10 scl_tb = 0;
+       end
+            sda_drive = 0;
+            #10 scl_tb = 1;
+            #10 scl_tb = 1;
+           end
+    
+    endtask
+endmodule
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+module address_translator (
+    input wire [6:0] virtual_addr,
+    input wire [6:0] real_addr_device1,
+    input wire [6:0] real_addr_device2,
+    output reg [6:0] translated_addr
+);
+    always @(*) begin
+        // Translate 0x49 to 0x48 for Device 2
+        if (virtual_addr == 7'h49)
+            translated_addr = real_addr_device2;
+        else
+            translated_addr = virtual_addr;
+    end
+endmodule
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+
+module top (
+    input wire clk,
+    input wire rst,
+    inout wire sda,
+    output wire scl
+);
+    wire [7:0] master_data_out;
+    wire [7:0] slave_data_out;
+    wire [6:0] translated_addr;
+    wire busy;
+
+    parameter VIRTUAL_ADDR = 7'h49;
+    parameter DEVICE1_ADDR = 7'h48;
+    parameter DEVICE2_ADDR = 7'h48;
+
+    address_translator u_translator (
+        .virtual_addr(VIRTUAL_ADDR),
+        .real_addr_device1(DEVICE1_ADDR),
+        .real_addr_device2(DEVICE2_ADDR),
+        .translated_addr(translated_addr)
+    );
+
+    i2c_master u_master (
+        .clk(clk),
+        .rst(rst),
+        .start(1'b1),
+        .rw(1'b0), // write mode
+        .device_addr(translated_addr),
+        .data_in(8'h55),
+        .data_out(master_data_out),
+        .busy(busy),
+        .scl(scl),
+        .sda(sda)
+    );
+
+    i2c_slave u_slave (
+        .clk(clk),
+        .rst(rst),
+        .scl(scl),
+        .sda(sda),
+        .slave_addr(DEVICE2_ADDR),
+        .data_out(slave_data_out),
+        .data_in(master_data_out)
+    );
+endmodule
+
+
+
+
+
+
+
+
+module i2c_master (
+    input  wire       clk,
+    input  wire       rst,
+    input  wire       start,
+    input  wire       rw,             // 0 = write, 1 = read
+    input  wire [6:0] device_addr,
+    input  wire [7:0] data_in,
+    output reg  [7:0] data_out,
+    output reg        busy,
+    output reg        scl,
+    inout  wire       sda
+);
+    reg sda_out;
+    reg sda_oe;
+
+    assign sda = sda_oe ? sda_out : 1'bz;
+
+    reg [3:0] bit_cnt;
+    reg [7:0] shift_reg;
+    reg [2:0] state;
+    localparam IDLE=0, START=1, ADDR=2, DATA=3, ACK=4, STOP=5;
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            busy <= 0;
+            scl <= 1;
+            sda_out <= 1;
+            sda_oe <= 0;
+            state <= IDLE;
+            bit_cnt <= 0;
+        end else begin
+            case (state)
+                IDLE: begin
+                    busy <= 0;
+                    sda_oe <= 0;
+                    scl <= 1;
+                    if (start) begin
+                        busy <= 1;
+                        state <= START;
+                        sda_oe <= 1;
+                        sda_out <= 0; // start condition
+                    end
+                end
+                START: begin
+                    state <= ADDR;
+                    bit_cnt <= 7;
+                    shift_reg <= {device_addr, rw}; // 7-bit addr + R/W
+                end
+                ADDR: begin
+                    scl <= 0;
+                    sda_out <= shift_reg[bit_cnt];
+                    scl <= 1;
+                    if (bit_cnt == 0) state <= ACK;
+                    else bit_cnt <= bit_cnt - 1;
+                end
+                ACK: begin
+                    sda_oe <= 0; // release SDA to receive ACK from slave
+                    scl <= 0;
+                    scl <= 1;
+                    state <= DATA;
+                    bit_cnt <= 7;
+                    shift_reg <= data_in;
+                end
+                DATA: begin
+                    scl <= 0;
+                    if (!rw) sda_oe <= 1; // write mode
+                    sda_out <= shift_reg[bit_cnt];
+                    scl <= 1;
+                    if (bit_cnt == 0) state <= STOP;
+                    else bit_cnt <= bit_cnt - 1;
+                end
+                STOP: begin
+                    sda_oe <= 1;
+                    sda_out <= 0;
+                    scl <= 1;
+                    sda_out <= 1; // stop condition
+                    busy <= 0;
+                    state <= IDLE;
+                end
+            endcase
+        end
+    end
+endmodule
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+module i2c_slave (
+    input  wire       clk,
+    input  wire       rst,
+    input  wire       scl,
+    inout  wire       sda,
+    input  wire [6:0] slave_addr,
+    output reg  [7:0] data_out,
+    input  wire [7:0] data_in
+);
+    reg sda_out;
+    reg sda_oe;
+    assign sda = sda_oe ? sda_out : 1'bz;
+
+    reg [2:0] state;
+    localparam IDLE=0, ADDR=1, ACK=2, DATA=3;
+
+    reg [3:0] bit_cnt;
+    reg [7:0] shift_reg;
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            state <= IDLE;
+            sda_oe <= 0;
+            sda_out <= 1;
+            data_out <= 0;
+        end else begin
+            case(state)
+                IDLE: begin
+                    sda_oe <= 0;
+                    if (scl == 1 && sda == 0) state <= ADDR; // start condition
+                    bit_cnt <= 7;
+                end
+                ADDR: begin
+                    shift_reg[bit_cnt] <= sda;
+                    if (bit_cnt == 0) state <= ACK;
+                    else bit_cnt <= bit_cnt - 1;
+                end
+                ACK: begin
+                    if (shift_reg[7:1] == slave_addr) begin
+                        sda_oe <= 1;
+                        sda_out <= 0; // ACK
+                    end
+                    state <= DATA;
+                    bit_cnt <= 7;
+                    shift_reg <= data_in;
+                end
+                DATA: begin
+                    sda_oe <= 1;
+                    sda_out <= shift_reg[bit_cnt];
+                    if (bit_cnt == 0) state <= IDLE;
+                    else bit_cnt <= bit_cnt - 1;
+                end
+            endcase
+        end
+    end
+endmodule
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+module address_translator (
+    input  wire [6:0] virtual_addr,
+    input  wire [6:0] real_addr_device1,
+    input  wire [6:0] real_addr_device2,
+    output reg  [6:0] translated_addr
+);
+    always @(*) begin
+        case (virtual_addr)
+            7'h49: translated_addr = real_addr_device2;
+            default: translated_addr = real_addr_device1;
+        endcase
+    end
+endmodule
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+`timescale 1ns/1ps
+
+module tb_top;
+
+    reg clk;
+    reg rst;
+    wire scl;
+    wire sda;
+
+    // Clock generation
+    initial clk = 0;
+    always #5 clk = ~clk; // 100 MHz clock
+
+    // Instantiate top module
+    top uut (
+        .clk(clk),
+        .rst(rst),
+        .sda(sda),
+        .scl(scl)
+    );
+
+    // Reset
+    initial begin
+        rst = 1;
+        #20;
+        rst = 0;
+    end
+
+    // Monitor SDA/SCL and internal signals
+    initial begin
+        $display("Time\tSCL SDA");
+        $monitor("%0dns\t%b   %b", $time, scl, sda);
+    end
+
+    // Simple stimulus: start write and read cycles
+    initial begin
+        #30;
+        $display("\n--- Starting I2C Simulation ---");
+
+        // Master write (handled inside module)
+        #100;
+
+        // Add delay for read (if implemented)
+        #200;
+
+        $display("\n--- I2C Simulation Complete ---");
+        $finish;
+    end
+
+endmodule
