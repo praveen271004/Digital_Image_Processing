@@ -1,0 +1,271 @@
+`timescale 1ns/1ps
+
+module coolie (
+    input clk,
+    input rst,
+    input [1:0] in_sym,
+    input in_valid,
+    output reg [9:0] recv_sym_out,
+    output reg [9:0] corrected_codeword,
+    output reg [4:0] decoded_bits,
+    output reg done
+);
+    parameter SEQ_LEN = 5;
+    parameter NUM_STATES = 4;
+
+    reg [2:0] state;
+    reg [2:0] cycle;
+    reg [2:0] pm_cycle;
+    reg [1:0] current_state;
+
+    reg [3:0] path_metric[0:NUM_STATES-1];
+    reg [3:0] next_metric[0:NUM_STATES-1];
+    reg [2:0] survivor[0:SEQ_LEN-1][0:NUM_STATES-1];
+    reg [1:0] recv_sym[0:SEQ_LEN-1];
+
+    reg [4:0] decoded_temp;
+    reg [9:0] corrected_temp;
+
+    integer  i;
+    reg [1:0] out0, out1;
+    reg [3:0] m0, m1,m2;
+    reg [1:0] prev0, prev1;
+    reg [3:0] min_metric;
+    reg [1:0] tb_state;
+    reg [2:0] survivor_entry;
+    reg tb_bit;
+
+   function [1:0] encode;
+    input [1:0] state;
+    input bit_in;
+    reg [2:0] shift;
+    begin
+        shift = {bit_in, state};  // MSB is newest
+        encode[1] = shift[2] ^ shift[1] ^ shift[0]; // G1 = 111
+        encode[0] = shift[2] ^ shift[0];            // G2 = 101
+    end
+endfunction
+
+    function [1:0] hamming;
+        input [1:0] a, b;
+        begin
+            hamming = (a[0]^b[0]) + (a[1]^b[1]);
+        end
+    endfunction
+    localparam IDLE      = 3'd0,
+               INIT      = 3'd1,
+               LOAD      = 3'd2,
+               COMPUTE   = 3'd3,
+               TRACEBACK = 3'd4,
+               DONE      = 3'd5;
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            state <= IDLE;
+            cycle <= 0;
+            pm_cycle <= 0;
+            decoded_bits <= 0;
+            corrected_codeword <= 0;
+            recv_sym_out <= 0;
+            done <= 0;
+        end else begin
+            case (state)
+                IDLE: begin
+                    cycle <= 0;
+                    pm_cycle <= 0;
+                    decoded_bits <= 0;
+                    corrected_codeword <= 0;
+                    recv_sym_out <= 0;
+                    done <= 0;
+                    $display("State: IDLE");
+                    state <= INIT;
+                end
+                INIT: begin
+                    for (i = 0; i < NUM_STATES; i = i + 1)
+                        path_metric[i] <= (i == 0) ? 0 : 15;
+                    $display("INIT: Path metrics initialized");
+                    state <= LOAD;
+                end
+                LOAD: begin
+                    if (in_valid) begin
+                        recv_sym[cycle] <= in_sym;
+                        recv_sym_out <= {recv_sym_out[7:0], in_sym};
+                        $display("LOAD: cycle=%0d, in_sym=%b", cycle, in_sym);
+                        cycle <= cycle + 1;
+                        if (cycle == SEQ_LEN - 1)
+                            state <= COMPUTE;
+                    end
+                end
+                COMPUTE: begin
+                    $display("------------ COMPUTE: pm_cycle=%0d ------------", pm_cycle);
+                    for (i = 0; i < NUM_STATES; i = i + 1)
+                        next_metric[i] = 15;
+                    for (i = 0; i < NUM_STATES; i = i + 1) begin
+                        case (i)
+                            2'b00: begin prev0 = 2'b00; prev1 = 2'b11; end
+                            2'b01: begin prev0 = 2'b01; prev1 = 2'b10; end
+                            2'b10: begin prev0 = 2'b11; prev1 = 2'b00; end
+                            2'b11: begin prev0 = 2'b10; prev1 = 2'b01; end
+                        endcase
+                        out0 = encode(prev0, 1'b0);
+                        out1 = encode(prev1, 1'b1);
+                        m0 = path_metric[prev0] + hamming(out0, recv_sym[pm_cycle]);
+                        m1 = path_metric[prev1] + hamming(out1, recv_sym[pm_cycle]);
+                        assign m2 = (hamming(out0, recv_sym[pm_cycle]) <  hamming(out1, recv_sym[pm_cycle])) ? hamming(out0, recv_sym[pm_cycle]) :  hamming(out1, recv_sym[pm_cycle]);
+                        $display("State %b:", i[1:0]);
+                        $display("  prev0=%b, in=0, encoded=%b, Hamming=%0d, Metric=%0d", prev0, out0, hamming(out0, recv_sym[pm_cycle]), m0);
+                        $display("  prev1=%b, in=1, encoded=%b, Hamming=%0d, Metric=%0d", prev1, out1, hamming(out1, recv_sym[pm_cycle]), m1);
+                        if (m0 < m1) begin
+                            next_metric[i] = m0;
+                            survivor[pm_cycle][i] = { prev0,1'b0};
+                            $display("Selected: input=0, path_metric=%0d", m0);
+                        end
+                        else if (m0 == m1) begin
+                         next_metric[i]=m2;
+                        survivor[pm_cycle][i]={prev1, 1'b1};
+                        $display("Selected: input=x, path_metric=%0d",m2);
+                        end
+                        else  begin
+                            next_metric[i] = m1;
+                            survivor[pm_cycle][i] = { prev1,1'b1};
+                            $display("  Selected: input=1, path_metric=%0d", m1);
+                        end
+                    end
+                    for (i = 0; i < NUM_STATES; i = i + 1) begin
+                        path_metric[i] <= next_metric[i];
+                        $display("  -> Path Metric [%b] = %0d", i[1:0], next_metric[i]);
+                    end
+                    if (pm_cycle == SEQ_LEN - 1)
+                        state <= TRACEBACK;
+                    else
+                        pm_cycle <= pm_cycle + 1;
+                end
+            TRACEBACK:
+begin
+    min_metric = path_metric[0];
+    current_state = 2'b00;
+    for (i = 1; i < NUM_STATES; i = i + 1)
+        if (path_metric[i] < min_metric) begin
+            min_metric = path_metric[i];
+            current_state = i[1:0];
+        end
+
+    $display("------------ TRACEBACK ------------");
+    $display("Starting at state: %b (min_metric=%0d)", current_state, min_metric);
+
+    for (i = SEQ_LEN - 1; i >= 0; i = i - 1) begin
+        survivor_entry = survivor[i][current_state];
+        tb_bit = survivor_entry[2];
+        tb_state = survivor_entry[1:0];
+
+        decoded_temp[SEQ_LEN - 1 - i] = tb_bit;
+corrected_temp[(SEQ_LEN - 1 - i)*2 +: 2] = encode(current_state, tb_bit);
+
+        $display("Step %0d: current_state=%b, tb_bit=%b -> encoded=%b", i, current_state, tb_bit, encode(current_state, tb_bit));
+        current_state = tb_state;
+    end
+
+    state <= DONE;
+end
+
+
+                DONE: begin
+                    decoded_bits <= decoded_temp;
+                    corrected_codeword <= corrected_temp;
+                    done <= 1;
+                    $display("------------ DONE ------------");
+                    $display("Decoded Bitstream  : %b", decoded_temp);
+                    $display("Corrected Codeword : %b", corrected_temp);
+                    $display("Input sequence      : %b", recv_sym_out);
+                    state <= IDLE;
+                end
+            endcase
+        end
+    end
+
+endmodule
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+`timescale 1ns / 1ps
+
+module powerhouse;
+
+    reg clk;
+    reg rst;
+    reg [1:0] recv_sym;
+    reg in_valid;
+
+    wire [9:0] recv_sym_out;
+    wire [9:0] corrected_codeword;
+    wire [4:0] decoded_bits;
+    wire done;
+
+    integer i;
+
+    // Input sequence: 11, 01, 00, 10, 11
+    reg [1:0] input_sequence [0:4];
+
+    // Instantiate the decoder
+    coolie uut (
+        .clk(clk),
+        .rst(rst),
+        .in_sym(recv_sym),
+        .in_valid(in_valid),
+        .recv_sym_out(recv_sym_out),
+        .corrected_codeword(corrected_codeword),
+        .decoded_bits(decoded_bits),
+        .done(done)
+    );
+
+    // Clock generation
+    always #5 clk = ~clk;
+
+    initial begin
+        clk = 0;
+        rst = 1;
+        in_valid = 0;
+        recv_sym = 2'b00;
+
+        // Initialize input sequence
+        input_sequence[0] = 2'b01;
+        input_sequence[1] = 2'b01;
+        input_sequence[2] = 2'b11;
+        input_sequence[3] = 2'b10;
+        input_sequence[4] = 2'b00;
+
+        // Reset pulse
+        #10 rst = 0;
+        @(posedge clk);
+
+        // Wait for FSM to enter LOAD state
+        wait (uut.state == 3'd2);
+        @(posedge clk); // Allow 1 more cycle
+
+        // Feed input sequence
+        for (i = 0; i < 5; i = i + 1) begin
+            recv_sym = input_sequence[i];
+            in_valid = 1;
+            @(posedge clk);
+            in_valid = 0;
+            @(posedge clk);  // One cycle gap (optional)
+        end
+
+        // Wait for 'done' signal
+        wait (done == 1);
+        @(posedge clk); // Let FSM settle one more cycle
+
+        // Display full result
+        $display("---------------------------------------------------");
+        $display("Input sequence      : %b", recv_sym_out);
+        $display("Corrected codeword  : %b", corrected_codeword);
+        $display("Decoded bitstream   : %b", decoded_bits);
+        $display("---------------------------------------------------");
+
+            $finish;
+    end
+
+endmodule
+
+
