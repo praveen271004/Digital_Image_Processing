@@ -1,0 +1,377 @@
+module Piecewise_Parabolic_Interpolator #(
+    parameter WIDTH      = 16,
+    parameter ERR_WIDTH  = 32
+)(
+    input  wire clk,
+    input  wire rst,
+    input  wire en,
+    input  wire signed [15:0] mu_test,
+    input  wire signed [WIDTH-1:0] x_n3,
+    input  wire signed [WIDTH-1:0] x_n2,
+    input  wire signed [WIDTH-1:0] x_n1,
+    input  wire signed [WIDTH-1:0] x_n,
+    output reg  signed [WIDTH-1:0] x_interp,
+    output wire signed [ERR_WIDTH-1:0] zc_error,
+    output wire signed [WIDTH-1:0] stuffed_data_out,
+    output wire stuffed_valid_out,
+    output wire signed [ERR_WIDTH-1:0] control_signal,
+    output wire signed [10:0] mu_dbg,
+
+    // New outputs for actual symbol-timing synchronized output
+    output wire signed [WIDTH-1:0] final_output_data,
+    //output wire signed [WIDTH-1:0] Symbol_sync_out,
+    output wire                   final_output_valid
+);
+
+    localparam signed [31:0] ONE_32 = 32'sh0000_8000;
+    localparam signed [31:0] TWO_32 = 32'sh0001_0000;
+    reg signed [WIDTH-1:0] Symbol_sync_out;
+    wire signed [10:0] mu_internal;
+    wire underflow;
+    wire signed [31:0] mu_fp_32     = { {16{mu_test[15]}}, mu_test };
+    wire signed [31:0] mu_minus_1   = mu_fp_32 - ONE_32;
+    wire signed [31:0] mu_minus_2   = mu_fp_32 - TWO_32;
+    wire signed [63:0] L0_full = mu_fp_32 * mu_minus_1;
+    wire signed [63:0] L1_full = -(mu_fp_32 * mu_minus_2);
+    wire signed [63:0] L2_full = mu_minus_1 * mu_minus_2;
+    wire signed [63:0] L0 = L0_full >>> 1;
+    wire signed [63:0] L2 = L2_full >>> 1;
+    wire signed [47:0] x_n2_48 = {{32{x_n2[15]}}, x_n2};
+    wire signed [47:0] x_n1_48 = {{32{x_n1[15]}}, x_n1};
+    wire signed [47:0] x_n_48  = {{32{x_n[15]}}, x_n};
+    wire signed [63:0] term0 = L0 * x_n2_48;
+    wire signed [63:0] term1 = L1_full * x_n1_48;
+    wire signed [63:0] term2 = L2 * x_n_48;
+    wire signed [63:0] sum_full = term0 + term1 + term2;
+    always @(posedge clk) begin
+        if (rst) x_interp <= 0;
+        else if (en) x_interp <= sum_full >>> 30;
+    end
+    // Zero-crossing TED
+    zcted2 #(
+        .DATA_WIDTH(WIDTH),
+        .ERR_WIDTH(ERR_WIDTH)
+    ) u_zcted2 (
+        .clk      (clk),
+        .rst      (rst),
+        .en       (en),
+        .x_in    (x_interp),
+       // .x_mid    (x_n1),
+        .error (zc_error)
+    );
+    upsampler_by_2 #(
+        .DATA_WIDTH(WIDTH)
+    ) u_zero_stuffer (
+        .clk       (clk),
+        .rst       (rst),
+        .data    (zc_error[WIDTH - 1: 0]),
+       // .valid_in   (en),
+        .data_out   (stuffed_data_out)
+       // .valid_out  (stuffed_valid_out)
+    );
+    PI_Loop_Filter_ConstGain #(
+        .WIDTH(WIDTH),
+        .OUT_WIDTH(ERR_WIDTH)
+    ) u_pi_loop (
+        .clk        (clk),
+        .rst        (rst),
+        .error_in   (stuffed_data_out),
+        .control_out(control_signal)
+    );
+    NCO #(
+        .WIDTH(11)
+    ) u_nco (
+        .clk       (clk),
+        .reset     (rst),
+        .enb       (en),
+        .Delta     (control_signal[10:0]),
+        .mu        (mu_internal),
+        .Underflow (underflow)
+    );
+    wire signed [10:0] mu_updated = mu_internal;
+//    update_mu #(
+//        .WIDTH(11)
+//    ) u_update_mu (
+//        .clk      (clk),
+//        .rst      (rst),
+//        .underflow(underflow),
+//        .mu_in    (mu_internal),
+//       // .v_n      (control_signal[10:0] >>> 1),  // Example: half Delta
+//        .mu_out   (mu_updated)
+//    );
+
+    assign mu_dbg = mu_updated <<< 7;
+
+    // === Output actual synchronized symbol on underflow ===
+    reg signed [WIDTH-1:0] x_out;
+    reg                    x_out_valid;
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            x_out       <= 0;
+            x_out_valid <= 0;
+        end else if (underflow) begin
+            x_out       <= x_interp;
+            x_out_valid <= 1;
+        end else begin
+            x_out_valid <= 0;
+        end
+    end
+
+    assign final_output_data  = x_out;
+    assign final_output_valid = x_out_valid;
+    
+    always @(posedge clk or posedge rst)begin
+       if (underflow) begin
+         
+            Symbol_sync_out <= final_output_data;
+            end else begin
+               
+               Symbol_sync_out <=0;
+               end
+    end
+integer f_valid_log;
+
+initial begin
+  f_valid_log = $fopen("C:/Users/test/Downloads/SSS/imag.txt", "w");
+  if (f_valid_log == 0) begin
+    $display("ERROR opening log file.");
+    $finish;
+  end
+end
+
+always @(posedge clk) begin
+  if (!rst) begin
+    $fwrite(f_valid_log, "%h\n",final_output_data);  // <-- Only the value
+    $fflush(f_valid_log);
+  end
+end
+endmodule
+/////////////////////////////////////////////////////////////////////////
+
+
+`timescale 1ns / 1ps
+
+module zcted2 #(
+    parameter DATA_WIDTH = 16,
+    parameter ERR_WIDTH  = 32
+)(
+    input  wire                         clk,
+    input  wire                         rst,
+    input  wire                         en,
+    input  wire signed [DATA_WIDTH-1:0] x_in,   // current input sample
+output reg  signed [ERR_WIDTH-1:0]  error    // output timing error
+); 
+
+    // Delay elements
+    reg signed [DATA_WIDTH-1:0] x_n1, x_n2;
+
+    // Internal wires
+    wire signed [DATA_WIDTH-1:0] s1, s2;
+    wire signed [DATA_WIDTH:0]   diff_signs;
+    wire signed [2*DATA_WIDTH-1:0] prod;
+
+    // Sign function (returns -1, 0, or 1)
+    function signed [DATA_WIDTH-1:0] sign_func;
+        input signed [DATA_WIDTH-1:0] val;
+        begin
+            if (val > 0)
+                sign_func = 16'sd1;
+            else if (val < 0)
+                sign_func = -16'sd1;
+            else
+                sign_func = 16'sd0;
+        end
+    endfunction
+
+    // Compute signs of input and delayed input
+    assign s1 = sign_func(x_in);
+    assign s2 = sign_func(x_n2);
+    
+    // Difference of signs
+    assign diff_signs = s1 - s2;
+
+    // Multiply diff_signs with x_n1 (middle sample)
+    assign prod = diff_signs * x_n1;
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            x_n1  <= 0;
+            x_n2  <= 0;
+            error <= 0;
+        end else if (en) begin
+            x_n2  <= x_n1;
+            x_n1  <= x_in;
+            error <= prod;
+        end
+    end
+
+endmodule
+
+
+
+
+/////////////////////////////////////////////////////////////
+
+`timescale 1ns / 1ps
+
+module upsampler_by_2 #(
+    parameter DATA_WIDTH = 16
+)(
+    input  wire                   clk,
+    input  wire                   rst,
+    input  wire signed [DATA_WIDTH-1:0] data,
+   
+    output reg  signed [DATA_WIDTH-1:0] data_out
+);
+
+    // Toggle signal for alternation
+    reg toggle;
+    reg signed [DATA_WIDTH-1:0] data_reg;
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            toggle    <= 1'b0;
+            data_out  <= 0;
+            data_reg  <= 0;
+        end else begin
+            if (toggle == 1'b0) begin
+                // On even cycles: output the real input sample
+                data_reg <= data;
+                data_out <= data;
+            end else begin
+                // On odd cycles: insert 0
+                data_out <= 0;
+            end
+            toggle <= ~toggle; // Alternate every cycle
+        end
+    end
+
+endmodule
+
+
+/////////////////////////////////////////////////////////////////////
+
+
+
+`timescale 1ns / 1ps
+
+module PI_Loop_Filter_ConstGain #(
+    parameter WIDTH = 16,
+    parameter OUT_WIDTH = 32
+)(
+    input wire clk,
+    input wire rst,
+    input wire signed [WIDTH-1:0] error_in,      // e.g., 16-bit signed Q1.15 error
+    output reg signed [OUT_WIDTH-1:0] control_out
+);
+
+    // Fixed-point gains in Q1.15 (signed)
+    localparam signed [15:0] K1 = 16'shFFAF;   // -81 in decimal = -2.4609e-3
+    localparam signed [15:0] K2 = 16'shFFFF;   // -1 in decimal = -8.2030e-6
+
+    // Internal signals
+    reg signed [OUT_WIDTH-1:0] integrator;
+    wire signed [OUT_WIDTH-1:0] proportional_term;
+    wire signed [OUT_WIDTH-1:0] integral_term;
+
+    // Multiply input error with gains (signed * signed)
+    assign proportional_term = (error_in * K1);
+    assign integral_term     = (error_in * K2);
+
+    // Main PI loop logic
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            integrator  <= 0;
+            control_out <= 0;
+        end else begin
+            integrator  <= integrator + integral_term;
+            control_out <= proportional_term + integrator;
+        end
+    end
+
+endmodule
+
+
+
+
+
+///////////////////////////////////////////////////////////////
+
+
+
+`timescale 1ns / 1ps
+
+module NCO #(
+    parameter WIDTH = 11  // sfix11_En10
+)(
+    input  wire                     clk,
+    input  wire                     reset,
+    input  wire                     enb,
+    input  wire signed [WIDTH-1:0] Delta,     // Loop filter output
+    output reg  signed [WIDTH-1:0] mu,        // Interpolation fraction
+    output reg                     Underflow  // Strobe for TED
+);
+
+    // Internal state
+    reg signed [WIDTH-1:0] countReg, muReg;
+    reg                    underflowReg;
+
+    wire signed [WIDTH-1:0] countMasked = countReg & 11'b01111111111;
+    wire signed [12:0]      counter     = $signed({1'b0, countMasked}) - $signed({1'b0, Delta}) - 13'sd512;
+
+    always @(posedge clk or posedge reset) begin
+        if (reset) begin
+            countReg     <= 0;
+            muReg        <= 0;
+            underflowReg <= 0;
+        end else if (enb) begin
+            if (counter < 0) begin
+                // Underflow: time to interpolate a new symbol
+                Underflow  <= 1;
+                mu         <= (countReg & 11'b01111111111) << 2;  // Scale to Q2.9
+                countReg   <= counter + 13'sd512;
+            end else begin
+                // Normal accumulation
+                Underflow <= 0;
+                mu        <= muReg;
+                countReg  <= counter[10:0];  // Wrap/clip logic
+            end
+            muReg        <= mu;
+            underflowReg <= Underflow;
+        end
+    end
+
+endmodule
+
+//////////////////////////////////////////////////////////////////////////
+
+
+
+`timescale 1ns / 1ps
+
+module update_mu #(
+    parameter WIDTH = 11  // Q1.10 fixed-point
+)(
+    input  wire                  clk,
+    input  wire                  rst,
+    input  wire                  underflow,     // Strobe from NCO
+    input  wire signed [WIDTH-1:0] mu_in,       // From NCO
+   // input  wire signed [WIDTH-1:0] v_n,         // 0.5 Ã- Delta from loop filter
+    output reg  signed [WIDTH-1:0] mu_out      // Updated mu to use in interpolator
+);
+
+    // Internal accumulator for fractional delay
+    // reg signed [WIDTH-1:0] acc;
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+       //     acc     <= 0;
+            mu_out  <= 0;
+        end else // if (underflow) begin
+        //    acc     <= mu_in - v_n;
+            mu_out  <= mu_in;
+        // end
+    end
+
+endmodule
